@@ -1,0 +1,1 @@
+yoyo list -d postgresql://postgres:123456GN@localhost:5432/liquidtext
