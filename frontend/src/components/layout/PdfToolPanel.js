@@ -24,6 +24,13 @@ const icons = {
             <path d="M6 12a1 1 0 0 0-1 1v1a2 2 0 0 0 2 2h2a1 1 0 0 1 1 1v2.9a2 2 0 1 0 4 0V17a1 1 0 0 1 1-1h2a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1" />
         </svg>
     ),
+    stickyNote: (
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M15.5 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3Z" />
+            <path d="M15 3v6h6" />
+            <path d="M8 13h8M8 17h5" />
+        </svg>
+    ),
     pageJump: (
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
             <polygon points="3 11 22 2 13 21 11 13 3 11" />
@@ -48,7 +55,8 @@ export default function PdfToolPanel() {
         showThumbnails, setShowThumbnails,
         showPageJump, setShowPageJump,
         pdfRef,
-        highlightBrushColor, setHighlightBrushColor
+        highlightBrushColor, setHighlightBrushColor,
+        zoomLevel, setZoomLevel,
     } = useApp();
 
     const onAddPdfText = () => pdfRef.current?.addPdfText();
@@ -163,6 +171,22 @@ export default function PdfToolPanel() {
                 {icons.dragHandle}
             </div>
 
+            {/* PDF Zoom Controls */}
+            <button
+                onClick={() => setZoomLevel(prev => Math.min(3, parseFloat((prev + 0.15).toFixed(2))))}
+                title="Zoom In PDF"
+                style={{ padding: "6px", display: "flex", alignItems: "center", justifyContent: "center", border: "none", borderRadius: "6px", background: "transparent", color: "#555", cursor: "pointer", fontSize: 16, fontWeight: 700, pointerEvents: 'auto' }}
+            >+</button>
+            <div style={{ fontSize: 10, color: '#666', textAlign: 'center', pointerEvents: 'none', fontWeight: 600 }}>
+                {Math.round((zoomLevel || 1) * 100)}%
+            </div>
+            <button
+                onClick={() => setZoomLevel(prev => Math.max(0.3, parseFloat((prev - 0.15).toFixed(2))))}
+                title="Zoom Out PDF"
+                style={{ padding: "6px", display: "flex", alignItems: "center", justifyContent: "center", border: "none", borderRadius: "6px", background: "transparent", color: "#555", cursor: "pointer", fontSize: 16, fontWeight: 700, pointerEvents: 'auto' }}
+            >−</button>
+            <div style={{ borderTop: '1px solid #eee', margin: '2px 0' }} />
+
             <button
                 className={`panel-btn ${showPageJump ? "active" : ""}`}
                 onClick={onTogglePageJump}
@@ -224,6 +248,28 @@ export default function PdfToolPanel() {
                 }}
             >
                 {icons.textAdd}
+            </button>
+
+            <button
+                className={`panel-btn ${tool === TOOL_MODES.STICKY_NOTE ? "active" : ""}`}
+                onClick={() => setTool(prev => prev === TOOL_MODES.STICKY_NOTE ? null : TOOL_MODES.STICKY_NOTE)}
+                title="Sticky Note — click on PDF to place"
+                style={{
+                    padding: "8px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    border: "none",
+                    borderRadius: "6px",
+                    background: tool === TOOL_MODES.STICKY_NOTE ? "#fff9c4" : "transparent",
+                    color: tool === TOOL_MODES.STICKY_NOTE ? "#f9a825" : "#555",
+                    cursor: "pointer",
+                    transition: "all 0.2s",
+                    pointerEvents: 'auto',
+                    outline: tool === TOOL_MODES.STICKY_NOTE ? "2px solid #f9a825" : "none",
+                }}
+            >
+                {icons.stickyNote}
             </button>
 
             <div style={{ position: 'relative', pointerEvents: 'auto' }}>

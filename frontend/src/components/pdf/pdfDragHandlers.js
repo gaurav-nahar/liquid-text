@@ -1,5 +1,5 @@
 
-export function handleTextDragStart(e, containerRef, mode, zoomLevel = 1) {
+export function handleTextDragStart(e, containerRef, mode, zoomLevel = 1, sourcePdfId = null) {
   if (mode !== "select") return;
 
   const selection = window.getSelection();
@@ -66,6 +66,7 @@ export function handleTextDragStart(e, containerRef, mode, zoomLevel = 1) {
       heightPct: rect.height / canvasRect.height,
       pageNum,
       fromPDF: true,
+      ...(sourcePdfId != null && { pdf_id: sourcePdfId }),
     };
 
 

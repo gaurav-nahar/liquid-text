@@ -23,6 +23,13 @@ class BoxRepo:
         ).all()
 
     @staticmethod
+    def get_by_workspace(db: Session, workspace_id: int, user_id: str):
+        return db.query(Box).filter(
+            Box.workspace_id == workspace_id,
+            Box.user_id == user_id
+        ).all()
+
+    @staticmethod
     def update(db: Session, box_id: int, req, user_id: str):
         box = db.query(Box).filter(Box.id == box_id, Box.user_id == user_id).first()
         if not box:

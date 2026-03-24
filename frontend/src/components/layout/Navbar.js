@@ -1,7 +1,6 @@
 import React from "react";
 import { useApp } from "../../context/AppContext";
 
-// Professional SVG icons
 const icons = {
     select: (
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round">
@@ -29,21 +28,10 @@ const icons = {
         </svg>
     ),
     eraser: (
-        <svg
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className="lucide lucide-eraser"
-        >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M21 21H8a2 2 0 0 1-1.42-.587l-3.994-3.999a2 2 0 0 1 0-2.828l10-10a2 2 0 0 1 2.829 0l5.999 6a2 2 0 0 1 0 2.828L12.834 21" />
             <path d="m5.082 11.09 8.828 8.828" />
         </svg>
-
     ),
     search: (
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round">
@@ -62,24 +50,10 @@ const icons = {
         </svg>
     ),
     highlight: (
-        <svg
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            className="lucide lucide-notepad-text"
-        >
-            <path d="M8 2v4" />
-            <path d="M12 2v4" />
-            <path d="M16 2v4" />
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M8 2v4" /><path d="M12 2v4" /><path d="M16 2v4" />
             <rect width="16" height="18" x="4" y="4" rx="2" />
-            <path d="M8 10h6" />
-            <path d="M8 14h8" />
-            <path d="M8 18h5" />
+            <path d="M8 10h6" /><path d="M8 14h8" /><path d="M8 18h5" />
         </svg>
     ),
     save: (
@@ -103,10 +77,39 @@ const icons = {
     ),
     highlightBrush: (
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M10 2v2" />
-            <path d="M14 2v4" />
+            <path d="M10 2v2" /><path d="M14 2v4" />
             <path d="M17 2a1 1 0 0 1 1 1v9H6V3a1 1 0 0 1 1-1z" />
             <path d="M6 12a1 1 0 0 0-1 1v1a2 2 0 0 0 2 2h2a1 1 0 0 1 1 1v2.9a2 2 0 1 0 4 0V17a1 1 0 0 1 1-1h2a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1" />
+        </svg>
+    ),
+    book: (
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+            <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+            <line x1="9" y1="7" x2="15" y2="7" />
+            <line x1="9" y1="11" x2="15" y2="11" />
+        </svg>
+    ),
+    bookmark: (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+        </svg>
+    ),
+    bookmarkFilled: (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
+        </svg>
+    ),
+    stickyNote: (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M15.5 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8.5L15.5 3Z" />
+            <path d="M15 3v6h6" />
+            <path d="M8 13h8M8 17h5" />
+        </svg>
+    ),
+    pageJump: (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <polygon points="3 11 22 2 13 21 11 13 3 11" />
         </svg>
     ),
     undo: (
@@ -132,43 +135,37 @@ export default function Navbar() {
         tool, setTool,
         TOOL_MODES,
         savingWorkspace, savingPdf,
-        allAnnotations,
-        showHighlightsList, setShowHighlightsList,
         autosaveInterval, setAutosaveInterval,
         handleGlobalSave,
         pdfRef,
-        handleDeleteHighlight: onDeleteHighlight,
-        handleDeletePdfText: onDeletePdfText,
-        handleDeletePdfDrawing: onDeletePdfDrawing,
-        handleDeleteBrushHighlight: onDeleteBrushHighlight,
         pdfDrawingColor, setPdfDrawingColor,
         handleUndo, handleRedo, canUndo, canRedo,
+        // PDF tools
+        zoomLevel, setZoomLevel,
+        showThumbnails, setShowThumbnails,
+        showPageJump, setShowPageJump,
+        highlightBrushColor, setHighlightBrushColor,
+        // Annotations sidebar toggle
+        showHighlightsList, setShowHighlightsList,
+        // Summary
+        showSummary, setShowSummary,
+        summary, summaryLoading,
+        handleSummarizePdf,
+        // Bookmarks
+        bookmarks, showBookmarks, setShowBookmarks,
+        handleAddBookmark,
     } = useApp();
 
-    const onSave = handleGlobalSave;
-    const selectedColor = pdfDrawingColor;
-    const onColorChange = setPdfDrawingColor;
-
-    const onJumpToHighlight = (item) => {
-
-        // If the item has PDF coordinates, use scrollToSnippet for proper highlight rendering
-        if (item.data && item.data.pageNum && item.data.xPct !== undefined) {
-            pdfRef.current?.scrollToSnippet(item.data);
-        } else {
-            // Fallback to just scrolling to the page
-            pdfRef.current?.scrollToPage(item.pageNum);
-        }
-        setShowHighlightsList(false);
-    };
-
     const saving = savingWorkspace || savingPdf;
-    const onToggleHighlightsLocal = () => setShowHighlightsList(!showHighlightsList);
+
     const onNextMatch = () => setCurrentMatchIndex(prev => (searchMatches.length ? (prev + 1) % searchMatches.length : -1));
     const onPrevMatch = () => setCurrentMatchIndex(prev => (searchMatches.length ? (prev - 1 + searchMatches.length) % searchMatches.length : -1));
 
     return (
+        <>
         <div className="main-navbar">
-            {/* LEFT SECTION (PDF TOOLS) */}
+
+            {/* ── LEFT: PDF Search ── */}
             <div className="navbar-left">
                 <div className="search-container">
                     <div className="search-icon">{icons.search}</div>
@@ -181,263 +178,208 @@ export default function Navbar() {
                     {searchText && (
                         <div className="search-controls">
                             <span className="match-count">
-                                {searchMatches.length > 0 ? `${currentMatchIndex + 1} / ${searchMatches.length}` : "0/0"}
+                                {searchMatches.length > 0 ? `${currentMatchIndex + 1}/${searchMatches.length}` : "0/0"}
                             </span>
-                            <button
-                                onClick={onPrevMatch}
-                                disabled={searchMatches.length === 0}
-                                className="match-nav-btn"
-                            >
-                                {icons.chevronUp}
-                            </button>
-                            <button
-                                onClick={onNextMatch}
-                                disabled={searchMatches.length === 0}
-                                className="match-nav-btn"
-                            >
-                                {icons.chevronDown}
-                            </button>
+                            <button onClick={onPrevMatch} disabled={searchMatches.length === 0} className="match-nav-btn">{icons.chevronUp}</button>
+                            <button onClick={onNextMatch} disabled={searchMatches.length === 0} className="match-nav-btn">{icons.chevronDown}</button>
                         </div>
                     )}
                 </div>
             </div>
 
-            {/* CENTER SECTION (WORKSPACE TOOLS) */}
+            {/* ── CENTER: All Tools ── */}
             <div className="navbar-center">
-                {/* Undo / Redo */}
-                <div className="tool-group" style={{ marginRight: '8px', paddingRight: '8px', borderRight: '1px solid #eee' }}>
+
+                {/* PDF Tools Group */}
+                <div className="tool-group" style={{ gap: 2 }}>
+                    {/* Zoom controls */}
+                    <button className="tool-btn" onClick={() => setZoomLevel(prev => Math.max(0.3, parseFloat((prev - 0.15).toFixed(2))))} title="Zoom Out PDF (-)">
+                        <span style={{ fontSize: 16, fontWeight: 700, lineHeight: 1 }}>−</span>
+                    </button>
+                    <span className="zoom-display">{Math.round((zoomLevel || 1) * 100)}%</span>
+                    <button className="tool-btn" onClick={() => setZoomLevel(prev => Math.min(3, parseFloat((prev + 0.15).toFixed(2))))} title="Zoom In PDF (+)">
+                        <span style={{ fontSize: 16, fontWeight: 700, lineHeight: 1 }}>+</span>
+                    </button>
+
+                    <div className="navbar-section-divider" />
+
+                    {/* Page Jump — inline input in navbar (no modal, no spinners) */}
+                    {showPageJump ? (
+                        <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "0 4px",
+                            background: "#eff6ff", borderRadius: 8, border: "2px solid #2563eb", height: 30 }}>
+                            <input
+                                autoFocus
+                                type="text"
+                                inputMode="numeric"
+                                pattern="[0-9]*"
+                                defaultValue={pdfRef.current?.getCurrentPageNum?.() || 1}
+                                onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
+                                        const p = parseInt(e.target.value, 10);
+                                        const total = pdfRef.current?.pdfDoc?.numPages || 9999;
+                                        if (!isNaN(p) && p >= 1 && p <= total) {
+                                            pdfRef.current?.scrollToPage(p);
+                                        }
+                                        setShowPageJump(false);
+                                    }
+                                    if (e.key === "Escape") setShowPageJump(false);
+                                }}
+                                onBlur={() => setShowPageJump(false)}
+                                onFocus={(e) => e.target.select()}
+                                style={{
+                                    width: 36, textAlign: "center", fontSize: 13, fontWeight: 700,
+                                    border: "none", outline: "none", background: "transparent",
+                                    color: "#1d4ed8", padding: 0,
+                                }}
+                            />
+                            <span style={{ fontSize: 12, color: "#93c5fd", fontWeight: 500, userSelect: "none" }}>
+                                / {pdfRef.current?.pdfDoc?.numPages || "?"}
+                            </span>
+                            <button
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => setShowPageJump(false)}
+                                style={{
+                                    background: "none", border: "none", cursor: "pointer",
+                                    color: "#93c5fd", fontSize: 16, lineHeight: 1, padding: "0 2px",
+                                    display: "flex", alignItems: "center",
+                                }}
+                            >×</button>
+                        </div>
+                    ) : (
+                        <button
+                            className="tool-btn"
+                            onClick={() => setShowPageJump(true)}
+                            title="Jump to Page"
+                        >{icons.pageJump}</button>
+                    )}
+
+                    {/* Thumbnails */}
+                    <button
+                        className={`tool-btn ${showThumbnails ? "active" : ""}`}
+                        onClick={() => setShowThumbnails(!showThumbnails)}
+                        title="PDF Thumbnails"
+                    >{icons.thumbnails}</button>
+
+                    {/* Add PDF Text */}
                     <button
                         className="tool-btn"
-                        onClick={handleUndo}
-                        disabled={!canUndo}
-                        title="Undo (Ctrl+Z)"
-                        style={{ opacity: canUndo ? 1 : 0.35 }}
-                    >
-                        {icons.undo}
-                    </button>
+                        onClick={() => pdfRef.current?.addPdfText()}
+                        title="Add Text to PDF"
+                    >{icons.textAdd}</button>
+
+                    {/* Sticky Note */}
                     <button
-                        className="tool-btn"
-                        onClick={handleRedo}
-                        disabled={!canRedo}
-                        title="Redo (Ctrl+Y)"
-                        style={{ opacity: canRedo ? 1 : 0.35 }}
-                    >
-                        {icons.redo}
-                    </button>
+                        className={`tool-btn ${tool === TOOL_MODES.STICKY_NOTE ? "active" : ""}`}
+                        onClick={() => setTool(prev => prev === TOOL_MODES.STICKY_NOTE ? TOOL_MODES.SELECT : TOOL_MODES.STICKY_NOTE)}
+                        title="Sticky Note — click on PDF to place"
+                        style={tool === TOOL_MODES.STICKY_NOTE ? { background: '#fff9c4', color: '#f9a825' } : {}}
+                    >{icons.stickyNote}</button>
+
+                    {/* Highlight Brush + color picker */}
+                    <div style={{ position: 'relative' }}>
+                        <button
+                            className={`tool-btn ${tool === TOOL_MODES.HIGHLIGHT_BRUSH ? "active" : ""}`}
+                            onClick={() => setTool(prev => prev === TOOL_MODES.HIGHLIGHT_BRUSH ? TOOL_MODES.SELECT : TOOL_MODES.HIGHLIGHT_BRUSH)}
+                            title="Highlight Brush"
+                        >{icons.highlightBrush}</button>
+                        {tool === TOOL_MODES.HIGHLIGHT_BRUSH && (
+                            <div style={{
+                                position: 'absolute', top: '100%', left: 0, marginTop: 6,
+                                display: 'flex', gap: 6, background: 'white',
+                                padding: '6px 8px', borderRadius: 20,
+                                border: '1px solid #ddd', boxShadow: '0 4px 12px rgba(0,0,0,0.12)',
+                                zIndex: 500,
+                            }}>
+                                {['#FFEB3B', '#4CAF50', '#FF4081', '#2196F3', '#FF9800'].map(color => (
+                                    <div key={color} onClick={() => setHighlightBrushColor(color)} style={{
+                                        width: 16, height: 16, borderRadius: '50%', backgroundColor: color,
+                                        cursor: 'pointer',
+                                        border: highlightBrushColor === color ? '2px solid #555' : '1px solid #ddd',
+                                        transform: highlightBrushColor === color ? 'scale(1.2)' : 'none',
+                                        transition: 'transform 0.15s',
+                                    }} />
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                {/* Divider between PDF and Workspace tools */}
+                <div className="navbar-section-divider" style={{ height: 28, margin: '0 10px' }} />
+
+                {/* Workspace Tools Group */}
+                <div className="tool-group" style={{ marginRight: 6, paddingRight: 6, borderRight: '1px solid #eee' }}>
+                    <button className="tool-btn" onClick={handleUndo} disabled={!canUndo} title="Undo (Ctrl+Z)" style={{ opacity: canUndo ? 1 : 0.35 }}>{icons.undo}</button>
+                    <button className="tool-btn" onClick={handleRedo} disabled={!canRedo} title="Redo (Ctrl+Y)" style={{ opacity: canRedo ? 1 : 0.35 }}>{icons.redo}</button>
                 </div>
                 <div className="tool-group">
-                    <button
-                        className={`tool-btn ${tool === TOOL_MODES.SELECT ? "active" : ""}`}
-                        onClick={() => setTool(TOOL_MODES.SELECT)}
-                        title="Select Tool"
-                    >
-                        {icons.select}
-                    </button>
-                    <button
-                        className={`tool-btn ${tool === TOOL_MODES.DRAW_LINE ? "active" : ""}`}
-                        onClick={() => setTool(TOOL_MODES.DRAW_LINE)}
-                        title="Connection Tool"
-                    >
-                        {icons.connection}
-                    </button>
-                    <button
-                        className={`tool-btn ${tool === TOOL_MODES.ADD_BOX ? "active" : ""}`}
-                        onClick={() => setTool(TOOL_MODES.ADD_BOX)}
-                        title="Add Text Box"
-                    >
-                        {icons.textBox}
-                    </button>
-                    <button
-                        className={`tool-btn ${tool === TOOL_MODES.PEN ? "active" : ""}`}
-                        onClick={() => setTool(TOOL_MODES.PEN)}
-                        title="Pen Tool"
-                    >
-                        {icons.pen}
-                    </button>
-                    <button
-                        className={`tool-btn ${tool === TOOL_MODES.ERASER ? "active" : ""}`}
-                        onClick={() => setTool(TOOL_MODES.ERASER)}
-                        title="Eraser Tool"
-                    >
-                        {icons.eraser}
-                    </button>
-                    {/* Color selection dots */}
-                    {(tool === TOOL_MODES.PEN) && (
-                        <div className="color-picker" style={{ display: 'flex', gap: '6px', marginLeft: '10px', paddingLeft: '10px', borderLeft: '1px solid #eee' }}>
+                    <button className={`tool-btn ${tool === TOOL_MODES.SELECT ? "active" : ""}`} onClick={() => setTool(TOOL_MODES.SELECT)} title="Select">{icons.select}</button>
+                    <button className={`tool-btn ${tool === TOOL_MODES.DRAW_LINE ? "active" : ""}`} onClick={() => setTool(TOOL_MODES.DRAW_LINE)} title="Connection (click-to-click)">{icons.connection}</button>
+                    <button className={`tool-btn ${tool === TOOL_MODES.ADD_BOX ? "active" : ""}`} onClick={() => setTool(TOOL_MODES.ADD_BOX)} title="Add Text Box">{icons.textBox}</button>
+                    <button className={`tool-btn ${tool === TOOL_MODES.PEN ? "active" : ""}`} onClick={() => setTool(TOOL_MODES.PEN)} title="Pen">{icons.pen}</button>
+                    <button className={`tool-btn ${tool === TOOL_MODES.ERASER ? "active" : ""}`} onClick={() => setTool(TOOL_MODES.ERASER)} title="Eraser">{icons.eraser}</button>
+
+                    {tool === TOOL_MODES.PEN && (
+                        <div style={{ display: 'flex', gap: 6, marginLeft: 8, paddingLeft: 8, borderLeft: '1px solid #eee', alignItems: 'center' }}>
                             {['black', '#ff3b30', '#007aff', '#34c759', '#ffcc00'].map(color => (
-                                <div
-                                    key={color}
-                                    onClick={() => onColorChange(color)}
-                                    style={{
-                                        width: '18px',
-                                        height: '18px',
-                                        borderRadius: '50%',
-                                        backgroundColor: color,
-                                        cursor: 'pointer',
-                                        border: selectedColor === color ? '2px solid #555' : '1px solid #ddd',
-                                        transform: selectedColor === color ? 'scale(1.2)' : 'none'
-                                    }}
-                                />
+                                <div key={color} onClick={() => setPdfDrawingColor(color)} style={{
+                                    width: 18, height: 18, borderRadius: '50%', backgroundColor: color, cursor: 'pointer',
+                                    border: pdfDrawingColor === color ? '2px solid #555' : '1px solid #ddd',
+                                    transform: pdfDrawingColor === color ? 'scale(1.2)' : 'none',
+                                }} />
                             ))}
                         </div>
                     )}
                 </div>
             </div>
 
-            {/* RIGHT SECTION (ACTIONS) */}
+            {/* ── RIGHT: Annotations + Save ── */}
             <div className="navbar-right">
-                <div style={{ position: 'relative' }}>
-                    <button
-                        className="tool-btn"
-                        onClick={onToggleHighlightsLocal} // Fixed to use local toggle
-                        title="View All Highlights"
-                        style={{ marginRight: '8px' }}
-                    >
-                        {icons.highlight}
-                    </button>
+                {/* Bookmark current page */}
+                <button
+                    className={`tool-btn ${showBookmarks ? "active" : ""}`}
+                    onClick={() => {
+                        const pageNum = pdfRef.current?.getCurrentPageNum?.() || 1;
+                        handleAddBookmark(pageNum, `Page ${pageNum}`);
+                        setShowBookmarks(true);
+                    }}
+                    title="Bookmark current page"
+                    style={{ marginRight: 2, color: bookmarks.some(b => b.page_num === (pdfRef.current?.getCurrentPageNum?.() || 1)) ? '#f59e0b' : undefined }}
+                >{icons.bookmark}</button>
 
-                    {/* Highlights Dropdown List */}
-                    {showHighlightsList && (
-                        <div style={{
-                            position: 'absolute',
-                            top: '100%',
-                            right: 0,
-                            width: '280px',
-                            maxHeight: '400px',
-                            background: 'white',
-                            border: '1px solid #ddd',
-                            borderRadius: '8px',
-                            boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-                            zIndex: 1000,
-                            overflowY: 'auto',
-                            marginTop: '8px'
-                        }}>
-                            <div style={{ padding: '10px', fontWeight: '600', borderBottom: '1px solid #eee' }}>
-                                All Annotations
-                            </div>
-                            {allAnnotations.length === 0 ? (
-                                <div style={{ padding: '15px', color: '#888', textAlign: 'center' }}>No annotations yet</div>
-                            ) : (
-                                allAnnotations.map((item, index) => {
-                                    // Determine label based on type
-                                    let typeLabel = '';
-                                    let deleteHandler = null;
+                {/* Bookmarks list toggle */}
+                <button
+                    className={`tool-btn ${showBookmarks ? "active" : ""}`}
+                    onClick={() => setShowBookmarks(!showBookmarks)}
+                    title="Show Bookmarks"
+                    style={{ marginRight: 4, fontSize: 11, fontWeight: 600, padding: '0 8px', minWidth: 28 }}
+                >
+                    {bookmarks.length > 0 ? <span style={{ color: '#f59e0b', fontWeight: 700 }}>{bookmarks.length}</span> : icons.bookmarkFilled}
+                </button>
 
-                                    if (item.type === 'highlight') {
-                                        typeLabel = 'Highlight';
-                                        deleteHandler = () => onDeleteHighlight(item.id);
-                                    } else if (item.type === 'text') {
-                                        typeLabel = 'Text Note';
-                                        deleteHandler = () => onDeletePdfText(item.id);
-                                    } else if (item.type === 'drawing') {
-                                        typeLabel = 'Drawing';
-                                        deleteHandler = () => onDeletePdfDrawing(item.id);
-                                    } else if (item.type === 'brush-highlight') {
-                                        typeLabel = 'Brush Highlight';
-                                        deleteHandler = () => onDeleteBrushHighlight(item.id);
-                                    }
+                {/* PDF Summary button */}
+                <button
+                    className={`tool-btn ${showSummary ? "active" : ""}`}
+                    onClick={handleSummarizePdf}
+                    title="Summarize PDF"
+                    style={{ marginRight: 4 }}
+                    disabled={summaryLoading}
+                >{icons.book}</button>
 
-                                    return (
-                                        <div
-                                            key={item.id || index}
-                                            onClick={() => onJumpToHighlight(item)}
-                                            style={{
-                                                padding: '10px 15px',
-                                                borderBottom: '1px solid #f5f5f5',
-                                                cursor: 'pointer',
-                                                transition: 'background 0.2s',
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                justifyContent: 'space-between',
-                                                gap: '10px'
-                                            }}
-                                            onMouseEnter={(e) => e.currentTarget.style.background = '#f9f9f9'}
-                                            onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
-                                        >
-                                            <div style={{ flexGrow: 1, minWidth: 0, overflow: 'hidden' }}>
-                                                <div style={{ fontSize: '11px', color: '#007aff', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '5px' }}>
-                                                    Page {item.pageNum}
-                                                    <span style={{
-                                                        background: item.type === 'highlight' ? '#fff9c4' : (item.type === 'text' ? '#e3f2fd' : '#f5f5f5'),
-                                                        padding: '1px 5px',
-                                                        borderRadius: '3px',
-                                                        fontSize: '9px',
-                                                        textTransform: 'uppercase'
-                                                    }}>
-                                                        {typeLabel}
-                                                    </span>
-                                                </div>
-                                                <div style={{
-                                                    fontSize: '13px',
-                                                    color: '#333',
-                                                    whiteSpace: 'nowrap',
-                                                    overflow: 'hidden',
-                                                    textOverflow: 'ellipsis',
-                                                    marginTop: '4px',
-                                                    position: 'relative'
-                                                }}>
-                                                    {item.type === 'highlight' || item.type === 'text' ? (() => {
-                                                        const words = (item.content || "").split(/\s+/);
-                                                        const isLong = words.length > 4;
-                                                        const displayContent = isLong ? words.slice(0, 4).join(" ") + "..." : item.content;
-                                                        return (
-                                                            <div>
-                                                                {displayContent}
-                                                            </div>
-                                                        );
-                                                    })() : (
-                                                        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '5px' }}>
-                                                            <span>✏️</span> {item.content}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            </div>
-                                            {/* 🗑️ Delete Button */}
-                                            {deleteHandler && (
-                                                <button
-                                                    onClick={(e) => { e.stopPropagation(); deleteHandler(); }}
-                                                    style={{
-                                                        background: 'transparent',
-                                                        border: 'none',
-                                                        color: '#ff3b30',
-                                                        cursor: 'pointer',
-                                                        padding: '4px',
-                                                        fontSize: '16px',
-                                                        display: 'flex',
-                                                        alignItems: 'center',
-                                                        justifyContent: 'center',
-                                                        opacity: 0.6,
-                                                        transition: 'opacity 0.2s'
-                                                    }}
-                                                    onMouseEnter={(e) => e.currentTarget.style.opacity = 1}
-                                                    onMouseLeave={(e) => e.currentTarget.style.opacity = 0.6}
-                                                >
-                                                    ✕
-                                                </button>
-                                            )}
-                                        </div>
-                                    );
-                                })
-                            )}
-                        </div>
-                    )}
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', background: '#f5f5f5', padding: '2px', borderRadius: '6px', border: '1px solid #ddd' }}>
+                {/* Annotations toggle — opens the right-side sidebar */}
+                <button
+                    className={`tool-btn ${showHighlightsList ? "active" : ""}`}
+                    onClick={() => setShowHighlightsList(!showHighlightsList)}
+                    title="All Annotations"
+                    style={{ marginRight: 4 }}
+                >{icons.highlight}</button>
+
+                {/* Autosave + Save */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#f5f5f5', padding: '2px', borderRadius: 6, border: '1px solid #ddd' }}>
                     <select
-                        id="autosave-interval-select"
-                        name="autosave-interval"
                         value={autosaveInterval}
                         onChange={(e) => setAutosaveInterval(parseInt(e.target.value))}
-                        style={{
-                            border: 'none',
-                            background: 'transparent',
-                            fontSize: '12px',
-                            color: '#555',
-                            padding: '4px 8px',
-                            cursor: 'pointer',
-                            outline: 'none',
-                            fontWeight: '500'
-                        }}
+                        style={{ border: 'none', background: 'transparent', fontSize: 12, color: '#555', padding: '4px 8px', cursor: 'pointer', outline: 'none', fontWeight: 500 }}
                         title="Autosave Interval"
                     >
                         <option value={0}>Autosave: Off</option>
@@ -448,16 +390,9 @@ export default function Navbar() {
                     </select>
                     <button
                         className={`save-btn ${saving ? "saving" : ""}`}
-                        onClick={onSave}
+                        onClick={handleGlobalSave}
                         disabled={saving || !pdfId}
-                        style={{
-                            margin: 0,
-                            border: 'none',
-                            borderRadius: '4px',
-                            padding: '6px 12px',
-                            fontSize: '13px',
-                            height: 'auto'
-                        }}
+                        style={{ margin: 0, border: 'none', borderRadius: 4, padding: '6px 12px', fontSize: 13, height: 'auto' }}
                     >
                         {icons.save}
                         <span>{saving ? "Saving..." : "Save"}</span>
@@ -465,5 +400,49 @@ export default function Navbar() {
                 </div>
             </div>
         </div>
+
+            {/* ── PDF Summary Modal ── */}
+            {showSummary && (
+                <div style={{
+                    position: 'fixed', inset: 0, zIndex: 9999,
+                    background: 'rgba(0,0,0,0.45)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }} onClick={() => setShowSummary(false)}>
+                    <div style={{
+                        background: '#fff', borderRadius: 12, padding: '28px 32px',
+                        width: '660px', maxWidth: '90vw', maxHeight: '80vh',
+                        display: 'flex', flexDirection: 'column', gap: 16,
+                        boxShadow: '0 8px 40px rgba(0,0,0,0.2)',
+                    }} onClick={e => e.stopPropagation()}>
+                        {/* Header */}
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                                {icons.book}
+                                <span style={{ fontSize: 17, fontWeight: 600, color: '#222' }}>PDF Summary</span>
+                            </div>
+                            <button onClick={() => setShowSummary(false)} style={{
+                                border: 'none', background: 'none', fontSize: 20,
+                                cursor: 'pointer', color: '#888', lineHeight: 1, padding: '0 4px'
+                            }}>×</button>
+                        </div>
+
+                        {/* Body */}
+                        <div style={{
+                            overflowY: 'auto', flex: 1, fontSize: 14, lineHeight: 1.7,
+                            color: '#333', padding: '4px 0', whiteSpace: 'pre-wrap',
+                            borderTop: '1px solid #eee', paddingTop: 16,
+                        }}>
+                            {summaryLoading ? (
+                                <div style={{ textAlign: 'center', color: '#888', paddingTop: 40 }}>
+                                    <div style={{ fontSize: 13 }}>Generating summary...</div>
+                                </div>
+                            ) : (
+                                summary
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+        </>
     );
 }

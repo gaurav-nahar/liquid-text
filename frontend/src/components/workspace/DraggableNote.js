@@ -6,6 +6,8 @@ import ItemContextMenu from "./ItemContextMenu";
  * 🗒️ DraggableNote (Workspace Snippets)
  * ...
  */
+const NOTE_COLORS = ['#ffffff', '#FFF9C4', '#DCEDC8', '#B3E5FC', '#F8BBD9', '#E1BEE7', '#FFE0B2'];
+
 const DraggableNote = memo(({
   snippet,
   onClick,
@@ -13,6 +15,11 @@ const DraggableNote = memo(({
   selected,
   onDoubleClick,
   disableDrag = false,
+  multiSelected = false,
+  onColorChange,
+  sourcePdfColor = null,   // color of the source PDF tab (e.g. "#3b82f6")
+  sourcePdfName = null,    // name of the source PDF for badge
+  onStartWire = null,      // (snippetId, clientX, clientY) => void — starts a drag wire
 }) => {
   const noteRef = useRef();
   const pos = useRef({ x: 0, y: 0 });
@@ -48,6 +55,9 @@ const DraggableNote = memo(({
       return;
     }
     e.stopPropagation();
+    // Ctrl/Shift+click = multi-select, don't start drag
+    if (e.ctrlKey || e.metaKey || e.shiftKey) return;
+    onDrag?.(null, null, "drag-start");
     startDrag(e.clientX, e.clientY);
     window.addEventListener("mousemove", handleMouseMove);
     window.addEventListener("mouseup", handleMouseUp);
@@ -68,6 +78,7 @@ const DraggableNote = memo(({
       return;
     }
     e.stopPropagation();
+    onDrag?.(null, null, "drag-start");
     const touch = e.touches[0];
     startDrag(touch.clientX, touch.clientY);
     window.addEventListener("touchmove", handleTouchMove, { passive: false });
@@ -219,7 +230,7 @@ const DraggableNote = memo(({
         onMouseLeave={() => setIsHovered(false)}
         onClick={(e) => {
           e.stopPropagation();
-          onClick?.(); // ⭐ CRITICAL: When clicked, it calls handleNoteClick() in useConnections.js (passed via App.js)
+          onClick?.(e);
         }}
         onContextMenu={handleContextMenu}
         onDoubleClick={(e) => {
@@ -232,16 +243,19 @@ const DraggableNote = memo(({
           position: "absolute",
           left: snippet.x,
           top: snippet.y,
-          background: selected ? "#d0e7ff" : (isHovered ? "#f0f8ff" : "white"),
+          background: multiSelected ? "#fff3cd" : (snippet.bg_color || (selected ? "#d0e7ff" : (isHovered ? "#f0f8ff" : "white"))),
           borderRadius: "10px",
           padding: "0.8rem",
           width: snippet.width || 180,
           height: snippet.height || "auto",
           boxShadow: selected || isHovered ? "0 4px 12px rgba(0,0,0,0.2)" : "0 2px 6px rgba(0,0,0,0.15)",
-          borderLeft:
-            snippet.type === "text" || !snippet.type
-              ? "4px solid #007bff"
-              : "4px solid #28a745",
+          borderLeft: multiSelected
+            ? "4px solid #fd7e14"
+            : sourcePdfColor
+              ? `4px solid ${sourcePdfColor}`
+              : (snippet.type === "text" || !snippet.type
+                  ? "4px solid #007bff"
+                  : "4px solid #28a745"),
           cursor: disableDrag ? "default" : (isEditing ? "text" : "move"),
           zIndex: selected || isHovered ? 20 : 10, // Bring to front on hover/select
           userSelect: isEditing ? "text" : "none",
@@ -249,6 +263,8 @@ const DraggableNote = memo(({
           paddingBottom: "20px", // Extra space for handle
           paddingRight: "15px",  // Extra space for handle
           transition: "box-shadow 0.2s, background 0.2s",
+          outline: multiSelected ? "2px solid #fd7e14" : "none",
+          outlineOffset: "1px",
           minHeight: "40px",
           display: "flex",
           flexDirection: "column"
@@ -278,7 +294,9 @@ const DraggableNote = memo(({
             }}
           />
         ) : snippet.type === "text" || snippet.text || !snippet.type ? (
-          <p style={{ margin: 0 }}>{snippet.text || tempText}</p>
+          <p style={{ margin: 0, color: (snippet.text || tempText) ? "inherit" : "#aaa", fontStyle: (snippet.text || tempText) ? "normal" : "italic" }}>
+            {snippet.text || tempText || "Double-click to edit..."}
+          </p>
         ) : snippet.type === "image" && imgSrc ? (
           <img
             src={imgSrc}
@@ -294,6 +312,86 @@ const DraggableNote = memo(({
           <p style={{ margin: 0, color: "#888" }}>Empty</p>
         )}
 
+        {/* 📄 Source PDF badge — shown on hover when snippet came from a specific PDF */}
+        {sourcePdfColor && sourcePdfName && isHovered && (
+          <div
+            style={{
+              position: "absolute", bottom: 22, right: 4,
+              background: sourcePdfColor, color: "white",
+              fontSize: 9, fontWeight: 700, padding: "2px 6px",
+              borderRadius: 8, opacity: 0.9, pointerEvents: "none",
+              maxWidth: 100, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+            }}
+          >{sourcePdfName}</div>
+        )}
+
+        {/* ❌ Delete Button */}
+        {(selected || isHovered) && (
+          <div
+            onMouseDown={e => e.stopPropagation()}
+            onClick={e => { e.stopPropagation(); onDrag?.(null, null, "delete", snippet.id); }}
+            title="Delete"
+            style={{
+              position: "absolute",
+              top: -8,
+              right: -8,
+              width: 20,
+              height: 20,
+              borderRadius: "50%",
+              background: "#ff4d4f",
+              color: "white",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 12,
+              fontWeight: 700,
+              cursor: "pointer",
+              zIndex: 40,
+              boxShadow: "0 1px 4px rgba(0,0,0,0.2)",
+              lineHeight: 1,
+              userSelect: "none",
+            }}
+          >
+            ×
+          </div>
+        )}
+
+        {/* 🎨 Color Picker — shows when selected */}
+        {selected && onColorChange && (
+          <div
+            onMouseDown={e => e.stopPropagation()}
+            style={{
+              position: "absolute",
+              bottom: -32,
+              left: 0,
+              display: "flex",
+              gap: 5,
+              background: "white",
+              padding: "4px 6px",
+              borderRadius: 20,
+              boxShadow: "0 2px 8px rgba(0,0,0,0.15)",
+              zIndex: 50,
+              border: "1px solid #eee",
+            }}
+          >
+            {NOTE_COLORS.map(c => (
+              <div
+                key={c}
+                title={c === '#ffffff' ? 'White' : c}
+                onClick={e => { e.stopPropagation(); onColorChange(c); }}
+                style={{
+                  width: 16, height: 16, borderRadius: "50%",
+                  background: c,
+                  border: snippet.bg_color === c ? "2px solid #333" : "1px solid #ccc",
+                  cursor: "pointer",
+                  transition: "transform 0.15s",
+                  transform: snippet.bg_color === c ? "scale(1.25)" : "scale(1)",
+                }}
+              />
+            ))}
+          </div>
+        )}
+
         {/* 📐 Resize Handle */}
         {!disableDrag && (selected || isHovered) && (
           <div
@@ -306,13 +404,51 @@ const DraggableNote = memo(({
               width: "20px",
               height: "20px",
               cursor: "nwse-resize",
-              background: "#666", // Darker for visibility
+              background: "#666",
               borderTopLeftRadius: "50%",
               borderBottomRightRadius: "10px",
               zIndex: 30,
             }}
             title="Resize"
           />
+        )}
+
+        {/* Wire drag handle — drag from here to connect to another note or PDF */}
+        {onStartWire && isHovered && (
+          <div
+            title="Drag to connect"
+            onMouseDown={(e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              const rect = noteRef.current?.getBoundingClientRect();
+              const cx = rect ? rect.left + rect.width / 2 : e.clientX;
+              const cy = rect ? rect.top + rect.height / 2 : e.clientY;
+              onStartWire(snippet.id, cx, cy, e.clientX, e.clientY);
+            }}
+            style={{
+              position: "absolute",
+              top: "50%",
+              right: -14,
+              transform: "translateY(-50%)",
+              width: 16,
+              height: 16,
+              borderRadius: "50%",
+              background: sourcePdfColor || "#6366f1",
+              border: "2px solid white",
+              boxShadow: "0 1px 4px rgba(0,0,0,0.25)",
+              cursor: "crosshair",
+              zIndex: 40,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 10,
+              color: "white",
+              fontWeight: 700,
+              userSelect: "none",
+            }}
+          >
+            +
+          </div>
         )}
       </div>
 

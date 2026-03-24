@@ -25,6 +25,12 @@ def list_connections(pdf_id: int, workspace_id: int, db: Session = Depends(get_d
     return ConnectionRepo.get_by_pdf(db, pdf_id, workspace_id, user_id=x_user_id)
 
 
+# Get all connections by workspace only (multi-PDF)
+@router.get("/workspace/{workspace_id}", response_model=list[ConnectionOut])
+def list_connections_by_workspace(workspace_id: int, db: Session = Depends(get_db), x_user_id: str = Header(...)):
+    return ConnectionRepo.get_by_workspace(db, workspace_id, user_id=x_user_id)
+
+
 # Update connection
 @router.put("/update/{conn_id}", response_model=ConnectionOut)
 def edit_connection(conn_id: int, req: ConnectionUpdate, db: Session = Depends(get_db), x_user_id: str = Header(...)):

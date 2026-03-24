@@ -21,7 +21,10 @@ const useWorkspaceSaver = (context, enableAutosave = true) => {
         deletedHighlights, setDeletedHighlights,
         deletedPdfTexts, setDeletedPdfTexts,
         autosaveInterval,
-        viewStateRef
+        viewStateRef,
+        groups,
+        crossPdfLinks,
+        setCrossPdfLinks,
     } = context;
 
     const savePdfChanges = useCallback(async () => {
@@ -107,6 +110,7 @@ const useWorkspaceSaver = (context, enableAutosave = true) => {
 
         const fd = new FormData();
         fd.append("pdfId", pdfId);
+        fd.append("cross_pdf_links", JSON.stringify(crossPdfLinks || []));
 
         // Snippets
         snippets.forEach((s, i) => {
@@ -116,7 +120,7 @@ const useWorkspaceSaver = (context, enableAutosave = true) => {
             fd.append(`snippets[${i}][y]`, s.y);
             fd.append(`snippets[${i}][width]`, s.width ?? "");
             fd.append(`snippets[${i}][height]`, s.height ?? "");
-            fd.append(`snippets[${i}][pdf_id]`, pdfId);
+            fd.append(`snippets[${i}][source_pdf_id]`, s.pdf_id || pdfId);
             fd.append(`snippets[${i}][page]`, s.pageNum ?? 1);
 
             if (s.xPct !== undefined) fd.append(`snippets[${i}][xPct]`, s.xPct);
@@ -162,6 +166,15 @@ const useWorkspaceSaver = (context, enableAutosave = true) => {
             localStorage.setItem(`view-${pdfId}-${activeWorkspace.id}`, JSON.stringify(viewStateRef.current));
         }
 
+        // Groups
+        (groups || []).forEach((g, i) => {
+            fd.append(`groups[${i}][client_id]`, g.id);
+            fd.append(`groups[${i}][name]`, g.name || "");
+            fd.append(`groups[${i}][color]`, g.color || "#e0e7ff");
+            fd.append(`groups[${i}][item_ids]`, JSON.stringify(g.itemIds || []));
+            fd.append(`groups[${i}][collapsed]`, g.collapsed ? "true" : "false");
+        });
+
         // Connections
         connections.forEach((c, i) => {
             const fromId = c.from ?? c.source_id;
@@ -183,6 +196,20 @@ const useWorkspaceSaver = (context, enableAutosave = true) => {
             setEditableBoxes(prev => prev.map(b => ({ ...b, id: idMap[String(b.id)] || b.id })));
             setConnections(prev => prev.map(c => ({ ...c, id: idMap[String(c.id)] || c.id, from: idMap[String(c.from)] || c.from, to: idMap[String(c.to)] || c.to })));
             setLines(prev => prev.map(l => ({ ...l, id: idMap[String(l.id)] || l.id })));
+            setCrossPdfLinks(prev => prev.map(link => {
+                const remapEndpoint = (endpoint) => {
+                    if (!endpoint || endpoint.type !== "snippet") return endpoint;
+                    return {
+                        ...endpoint,
+                        snippetId: idMap[String(endpoint.snippetId)] || endpoint.snippetId,
+                    };
+                };
+                return {
+                    ...link,
+                    from: remapEndpoint(link.from),
+                    to: remapEndpoint(link.to),
+                };
+            }));
         } catch (err) {
             console.error("❌ Save Workspace failed:", err);
         } finally {
@@ -190,9 +217,10 @@ const useWorkspaceSaver = (context, enableAutosave = true) => {
             setIsDirty(false);
         }
     }, [
-        pdfId, activeWorkspace, snippets, editableBoxes, lines, connections,
+        pdfId, activeWorkspace, snippets, editableBoxes, lines, connections, groups,
         existingSnippetsMap, savingWorkspace, setSavingWorkspace, setSnippets,
-        setEditableBoxes, setConnections, setLines, setIsDirty, viewStateRef
+        setEditableBoxes, setConnections, setLines, setIsDirty, viewStateRef,
+        crossPdfLinks, setCrossPdfLinks
     ]);
 
     // Autosave Timer logic here

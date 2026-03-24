@@ -31,7 +31,6 @@ export default function useUndoRedo() {
         if (past.current.length > MAX_HISTORY) {
             past.current.shift();
         }
-        console.log('[UndoRedo] recordHistory called, past.length=', past.current.length);
         updateFlags();
     }, [updateFlags]);
 

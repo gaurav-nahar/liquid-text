@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, func
+from sqlalchemy import Column, Integer, String, Text, ForeignKey, DateTime, func
 from sqlalchemy.orm import relationship
 from src.db.db import Base
 
@@ -11,6 +11,7 @@ class Workspace(Base):
     name = Column(String, nullable=False, default="Initial Workspace")
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
+    cross_pdf_links_json = Column(Text, nullable=True, default="[]")
 
     # Relationships
     pdf = relationship("PDFFile", back_populates="workspaces")

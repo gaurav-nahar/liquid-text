@@ -23,6 +23,13 @@ class ConnectionRepo:
         ).all()
 
     @staticmethod
+    def get_by_workspace(db: Session, workspace_id: int, user_id: str):
+        return db.query(Connection).filter(
+            Connection.workspace_id == workspace_id,
+            Connection.user_id == user_id
+        ).all()
+
+    @staticmethod
     def update(db: Session, conn_id: int, req, user_id: str):
         conn = db.query(Connection).filter(Connection.id == conn_id, Connection.user_id == user_id).first()
         if not conn:

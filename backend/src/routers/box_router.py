@@ -21,6 +21,12 @@ def get_boxes(pdf_id: int, workspace_id: int, db: Session = Depends(get_db), x_u
     return BoxRepo.get_by_pdf(db, pdf_id, workspace_id, user_id=x_user_id)
 
 
+# Get all boxes by workspace only (multi-PDF)
+@router.get("/workspace/{workspace_id}", response_model=List[BoxResponse])
+def get_boxes_by_workspace(workspace_id: int, db: Session = Depends(get_db), x_user_id: str = Header(...)) -> List[BoxResponse]:
+    return BoxRepo.get_by_workspace(db, workspace_id, user_id=x_user_id)
+
+
 # Update a box
 @router.put("/update/{box_id}", response_model=BoxResponse)
 def update_box(box_id: int, req: BoxUpdate, db: Session = Depends(get_db), x_user_id: str = Header(...)) -> BoxResponse:

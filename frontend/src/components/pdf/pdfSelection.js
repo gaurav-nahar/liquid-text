@@ -9,7 +9,7 @@ import { handleTextDragStart } from "./pdfDragHandlers";
  * @param {string} mode - Current mode ("select" or other)
  * @returns {Object} Object containing selection state and handlers
  */
-export const useSelection = (containerRef, mode, contentRef = null, zoomLevel = 1) => {
+export const useSelection = (containerRef, mode, contentRef = null, zoomLevel = 1, sourcePdfId = null) => {
     const [isDragging, setIsDragging] = useState(false);
     const [startPos, setStartPos] = useState(null);
     const [selectionBox, setSelectionBox] = useState(null);
@@ -84,11 +84,19 @@ export const useSelection = (containerRef, mode, contentRef = null, zoomLevel = 
                     const canvas = pageWrapper.querySelector("canvas");
                     const canvasRect = canvas.getBoundingClientRect();
 
+                    // Anchor position as fraction of the canvas page (for cross-PDF connection lines)
+                    const anchorXPct = canvasRect.width  > 0 ? Math.max(0, Math.min(1, (rect.left + rect.width  / 2 - canvasRect.left) / canvasRect.width))  : 0.5;
+                    const anchorYPct = canvasRect.height > 0 ? Math.max(0, Math.min(1, (rect.top  + rect.height / 2 - canvasRect.top)  / canvasRect.height)) : 0.5;
+
                     setPopupData({
                         position: {
                             x: (rect.left + rect.width / 2) - containerRef.current.getBoundingClientRect().left,
                             y: rect.top - containerRef.current.getBoundingClientRect().top - 80
-                        }
+                        },
+                        selectedText,
+                        pageNum,
+                        anchorXPct,
+                        anchorYPct,
                     });
 
                     // Store selection data for later usage
@@ -120,7 +128,8 @@ export const useSelection = (containerRef, mode, contentRef = null, zoomLevel = 
                 selBoxRect,
                 clearSelectionBox,
                 mode,
-                zoomLevel // 🚀 Pass zoomLevel for coordinate correction
+                zoomLevel,
+                sourcePdfId
             );
             return;
         }
@@ -133,6 +142,7 @@ export const useSelection = (containerRef, mode, contentRef = null, zoomLevel = 
     const isTouchSelectingRef = useRef(false);
     const touchStartCoordsRef = useRef(null);
     const isTouchEventRef = useRef(false); // 🔒 Lock to prevent mouse handlers during touch
+    const pendingMouseStartRef = useRef(null); // Pending mouse-down pos — box only created after drag threshold
 
     // Setup event listeners for selection
     useEffect(() => {
@@ -218,7 +228,8 @@ export const useSelection = (containerRef, mode, contentRef = null, zoomLevel = 
 
             e.preventDefault();
             const { x, y } = getClientPos(e);
-            startNewSelection(x, y);
+            // Store pending start — box only created once drag threshold is exceeded
+            pendingMouseStartRef.current = { x, y };
         };
 
         const handleMouseMove = (e) => {
@@ -227,7 +238,19 @@ export const useSelection = (containerRef, mode, contentRef = null, zoomLevel = 
             // 🔒 Skip mouse if touch is active
             if (isTouchEventRef.current) return;
 
-            // For mouse, we rely on React state isDragging or existence of box
+            // If there's a pending mouse start, check drag threshold (8px)
+            if (pendingMouseStartRef.current) {
+                const { x, y } = getClientPos(e);
+                const dx = x - pendingMouseStartRef.current.x;
+                const dy = y - pendingMouseStartRef.current.y;
+                if (Math.sqrt(dx * dx + dy * dy) > 8) {
+                    startNewSelection(pendingMouseStartRef.current.x, pendingMouseStartRef.current.y);
+                    pendingMouseStartRef.current = null;
+                    updateBox(x, y);
+                }
+                return;
+            }
+
             const box = container.querySelector(".current-selection-box");
             if (!box) return;
 
@@ -239,6 +262,8 @@ export const useSelection = (containerRef, mode, contentRef = null, zoomLevel = 
         const handleMouseUpWrapper = () => {
             // 🔒 Skip mouse if touch is active
             if (isTouchEventRef.current) return;
+
+            pendingMouseStartRef.current = null; // Clear any pending start
 
             // Cleanup marker class on commit
             const box = container.querySelector(".current-selection-box");
@@ -332,7 +357,7 @@ export const useSelection = (containerRef, mode, contentRef = null, zoomLevel = 
         container.addEventListener("mousedown", handleMouseDown);
         container.addEventListener("mousemove", handleMouseMove);
         container.addEventListener("mouseup", handleMouseUpWrapper);
-        container.addEventListener("dragstart", (e) => handleTextDragStart(e, containerRef, mode, zoomLevel));
+        container.addEventListener("dragstart", (e) => handleTextDragStart(e, containerRef, mode, zoomLevel, sourcePdfId));
 
         container.addEventListener("touchstart", handleTouchStart, { passive: true }); // Passive:true allows scroll
         container.addEventListener("touchmove", handleTouchMove, { passive: false }); // Passive:false allows preventDefault later

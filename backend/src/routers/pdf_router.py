@@ -1,10 +1,16 @@
 from fastapi import APIRouter, Depends, HTTPException, Response, Query, Header
 from sqlalchemy.orm import Session
+from pydantic import BaseModel
+from typing import List, Dict, Any, Optional
 import httpx
+import os
 from src.db.db import get_db
 from src.request.pdf_request import PdfCreate, PdfOut
 from src.repo.pdf_repo import PDFRepo
 from src.models.pdf_model import PDFFile
+
+NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY", "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")
+NVIDIA_API_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
 
 router = APIRouter()
 
@@ -64,6 +70,72 @@ async def proxy_pdf(pdf_url: str = Query(..., alias="url")):
         raise HTTPException(status_code=500, detail=f"Error fetching PDF: {str(e)}")
 
 
+class SummarizeRequest(BaseModel):
+    text: str
+
+@router.post("/summarize")
+async def summarize_pdf(req: SummarizeRequest):
+    """Call NVIDIA Mistral API to summarize the PDF text."""
+    print(f"[DEBUG summarize] Received text length: {len(req.text)}, stripped: {len(req.text.strip())}")
+    if not req.text.strip():
+        raise HTTPException(status_code=400, detail="No text provided")
+
+    text = req.text[:24000]
+    print(f"[DEBUG summarize] Sending {len(text)} chars to AI")
+
+    prompt = (
+        "You are an expert legal document analyst. Analyze the following PDF text and extract information "
+        "in EXACTLY this structured format. Only include sections where information is found in the document. "
+        "Do NOT invent or assume any details not present in the text.\n\n"
+        "Use this format:\n\n"
+        "## 1. Party Details\n"
+        "- **Petitioner:** [name(s)]\n"
+        "- **Respondent:** [name(s)]\n"
+        "- **Petitioner's Advocate:** [name(s) or Not mentioned]\n"
+        "- **Respondent's Advocate:** [name(s) or Not mentioned]\n\n"
+        "## 2. Category / Acts & Sections\n"
+        "- **Court/Tribunal:** [name]\n"
+        "- **Case Number:** [number]\n"
+        "- **Acts Involved:** [list relevant Acts]\n"
+        "- **Sections:** [list relevant sections]\n\n"
+        "## 3. Facts of the Case\n"
+        "[Concise bullet-point summary of key facts]\n\n"
+        "## 4. Prayer / Relief Sought\n"
+        "[What relief the petitioner is asking for]\n\n"
+        "## 5. Judgement / Order\n"
+        "[Summary of the judgement or order, or 'Not available' if not present]\n\n"
+        "---\n"
+        f"PDF Content:\n{text}"
+    )
+
+    payload = {
+        "model": "mistralai/mistral-small-3.1-24b-instruct-2503",
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": 2048,
+        "temperature": 0.20,
+        "top_p": 0.70,
+        "stream": False,
+    }
+
+    headers = {
+        "Authorization": f"Bearer {NVIDIA_API_KEY}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(NVIDIA_API_URL, json=payload, headers=headers)
+            response.raise_for_status()
+            data = response.json()
+            summary = data["choices"][0]["message"]["content"]
+            return {"summary": summary}
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(status_code=502, detail=f"NVIDIA API error: {e.response.status_code}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Summarization failed: {str(e)}")
+
+
 @router.post("/open", response_model=PdfOut)
 def open_or_create_pdf(req: PdfCreate, db: Session = Depends(get_db)):
     print(f"[DEBUG] Request: name={req.name}, path={req.path}")
@@ -115,8 +187,6 @@ from src.models.highlight_model import Highlight
 from src.models.pdf_text_model import PdfText
 from src.models.pdf_drawing_line_model import PdfDrawingLine
 from src.models.pdf_brush_highlight_model import PdfBrushHighlight
-from typing import List, Dict, Any, Optional
-from pydantic import BaseModel
 
 # ----------------------------
 # HELPER FUNCTIONS

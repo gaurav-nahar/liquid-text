@@ -1,4 +1,4 @@
-export default function useSnippetHandlers({ tool, TOOL_MODES, pdfRef, workspaceRef, setSnippets, setConnections, screenToWorld, getScale, recordHistory, getSnapshot }) {
+export default function useSnippetHandlers({ tool, TOOL_MODES, pdfRef, workspaceRef, setSnippets, setConnections, screenToWorld, getScale, recordHistory, getSnapshot, showToast }) {
   const addSnippet = (data, dropPos) => {
     if (recordHistory && getSnapshot) recordHistory(getSnapshot());
     // ---------- 1. PREPARE SNIPPET OBJECT ----------
@@ -21,9 +21,12 @@ export default function useSnippetHandlers({ tool, TOOL_MODES, pdfRef, workspace
       snippet.width = isText ? (data.width / scale) + 40 : (data.width / scale);
       snippet.height = isText ? "auto" : (data.height / scale);
 
-      // NOTE: We do NOT create a separate anchor object anymore to avoid DB schema changes.
-      // The snippet itself contains all the PDF coordinate data (pageNum, xPct, etc.)
-      // which we will use directly in useConnections.js for the trace.
+      // Guard: block blank text snippets caused by PDF text extraction failure
+      // (common with Hindi/Devanagari or scanned PDFs that lack proper Unicode mappings)
+      if (isText && !snippet.text) {
+        if (showToast) showToast("Text could not be extracted from this PDF. Use the image crop tool to capture this area.", "warning");
+        return;
+      }
 
       setSnippets((prev) => [...prev, snippet]);
     } else {

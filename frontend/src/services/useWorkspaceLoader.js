@@ -1,7 +1,6 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import api from "../api/api";
 const useWorkspaceLoader = (context) => {
-    // Context object se props destructure karein (jaise useApp me karte hain)
     const {
         pdfId,
         activeWorkspace,
@@ -16,19 +15,31 @@ const useWorkspaceLoader = (context) => {
         setBrushHighlights,
         setExistingSnippetsMap,
         setIsDirty,
-        viewStateRef
+        viewStateRef,
+        setGroups,
+        setCrossPdfLinks,
     } = context;
 
-    // 🔄 Loads saved snippets, boxes, and lines when a PDF is opened.
+    // Track last loaded workspace so we can skip workspace reload on PDF-only switch
+    const loadedWorkspaceIdRef = useRef(null);
+
+    // EFFECT 1: Load workspace-level data (snippets, boxes, lines, connections)
+    // Only fires when the active workspace actually changes
     useEffect(() => {
         if (!pdfId || !activeWorkspace) return;
+        if (loadedWorkspaceIdRef.current === activeWorkspace.id) return; // same workspace, skip
+        loadedWorkspaceIdRef.current = activeWorkspace.id;
 
         let mounted = true;
 
         const loadWorkspace = async () => {
             setLoading(true);
             try {
-                const data = await api.loadWorkspaceData(pdfId, activeWorkspace.id);
+                const [data, groupsRes, crossLinksRes] = await Promise.all([
+                    api.loadWorkspaceDataByWorkspace(pdfId, activeWorkspace.id),
+                    api.loadWorkspaceGroups(activeWorkspace.id),
+                    api.loadCrossPdfLinks(activeWorkspace.id),
+                ]);
                 const {
                     snippets: snipData,
                     boxes: boxData,
@@ -90,7 +101,7 @@ const useWorkspaceLoader = (context) => {
                 setSnippets(snippetsWithFiles);
                 setEditableBoxes(boxData ?? []);
 
-                // 🎨 Normalize lines: backend uses stroke_width, frontend uses width
+                // Normalize lines: backend uses stroke_width, frontend uses width
                 const normalizedLines = (lineData ?? []).map(l => ({
                     ...l,
                     width: l.stroke_width ?? l.width ?? 2
@@ -102,6 +113,30 @@ const useWorkspaceLoader = (context) => {
                     to: c.target_id
                 }));
                 setConnections(normalizedConns);
+
+                // Load cross-PDF links — deduplicate by source endpoint key
+                if (setCrossPdfLinks && crossLinksRes?.data) {
+                    const raw = Array.isArray(crossLinksRes.data) ? crossLinksRes.data : [];
+                    const seen = new Set();
+                    const deduped = raw.filter(l => {
+                        const key = `${l.from?.pdfId}-${l.from?.pageNum}-${Math.round((l.from?.xPct||0)*100)}-${l.from?.snippetId||''}`;
+                        if (seen.has(key)) return false;
+                        seen.add(key);
+                        return true;
+                    });
+                    setCrossPdfLinks(deduped);
+                }
+
+                // Load groups
+                if (setGroups && groupsRes?.data) {
+                    setGroups(groupsRes.data.map(g => ({
+                        id: g.client_id,
+                        name: g.name,
+                        color: g.color,
+                        itemIds: g.item_ids || [],
+                        collapsed: g.collapsed,
+                    })));
+                }
 
                 if (hlData !== undefined) {
                     const transformedHighlights = hlData.map(hl => ({
@@ -176,11 +211,39 @@ const useWorkspaceLoader = (context) => {
 
         loadWorkspace();
         return () => (mounted = false);
-    }, [
-        pdfId, activeWorkspace, setLoading, setExistingSnippetsMap, setSnippets,
-        setEditableBoxes, setLines, setConnections, setHighlights,
-        setPdfAnnotations, setPdfLines, setBrushHighlights, setIsDirty, viewStateRef
-    ]);
+    }, [activeWorkspace]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // EFFECT 2: Reload PDF-level annotations when user switches PDF tab
+    // (activeWorkspace unchanged, only pdfId changes)
+    const prevPdfIdRef = useRef(null);
+    useEffect(() => {
+        if (!pdfId || !activeWorkspace) return;
+        if (prevPdfIdRef.current === null) {
+            prevPdfIdRef.current = pdfId; // first load — effect 1 handles it
+            return;
+        }
+        if (prevPdfIdRef.current === pdfId) return;
+        prevPdfIdRef.current = pdfId;
+
+        // PDF tab switched — reload only PDF-level annotations
+        api.loadPdfAnnotations(pdfId).then(data => {
+            const { highlights: hlData, pdfTexts: textData, pdfDrawingLines: pdfLineData, pdfBrushHighlights: brushData } = data;
+
+            setHighlights(hlData.map(hl => ({
+                id: hl.id, pageNum: hl.page_num, color: hl.color,
+                xPct: hl.x_pct, yPct: hl.y_pct, widthPct: hl.width_pct, heightPct: hl.height_pct, content: hl.content
+            })));
+            setPdfAnnotations(textData.map(a => ({
+                id: a.id, pageNum: a.page_num, text: a.text, xPct: a.x_pct, yPct: a.y_pct, isEditing: false
+            })));
+            setPdfLines(pdfLineData.map(l => ({
+                id: l.id, pageNum: l.page_num, points: l.points, color: l.color, width: l.stroke_width || l.width || 2, tool: "pen"
+            })));
+            setBrushHighlights(brushData.map(h => ({
+                id: `brush-${h.id}`, serverId: h.id, pageNum: h.page_num, path: h.path_data, color: h.color, brushWidth: h.brush_width
+            })));
+        }).catch(err => console.error("❌ Error loading PDF annotations:", err));
+    }, [pdfId, activeWorkspace]); // eslint-disable-line react-hooks/exhaustive-deps
 
 
 };

@@ -23,7 +23,6 @@ import { scrollToSnippet as scrollToSnippetUtil, scrollToPage as scrollToPageUti
 import { useApp } from "../../context/AppContext";
 // --- SECTION 4: LAZY LOADED OVERLAYS ---
 const PDFThumbnailView = React.lazy(() => import("./PDFThumbnailView"));
-const PageJumpBox = React.lazy(() => import("./PageJumpBox"));
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
 
@@ -35,7 +34,9 @@ const PDFViewer = React.memo(
     forwardRef(
         (
             {
-                fileUrl
+                fileUrl,
+                sourcePdfId = null,
+                localZoom = null,       // when set, overrides AppContext zoomLevel (independent panel)
             },
             ref
         ) => {
@@ -46,24 +47,39 @@ const PDFViewer = React.memo(
                 pdfAnnotations, setPdfAnnotations,
                 handleDeletePdfText: onDeletePdfText,
                 tool,
-                brushHighlights, // Still might be useful for latestRef
+                brushHighlights,
                 showThumbnails, setShowThumbnails,
-                showPageJump, setShowPageJump,
                 setIsDirty,
                 highlights,
                 setSearchMatches,
                 pdfDrawingColor,
-                zoomLevel,
+                zoomLevel: contextZoomLevel, setZoomLevel,
                 pdfRenderScale,
-                isResizing
+                isResizing,
+                handleAddBookmark,
+                TOOL_MODES,
+                pendingCrossLink, startCrossLink, completeCrossLink,
+                startDragWire,
             } = useApp();
+
+            // Use localZoom when provided (right panel independent zoom), else fall back to shared context zoom
+            const zoomLevel = localZoom !== null ? localZoom : contextZoomLevel;
+
+            // Cursor style per tool
+            const toolCursor = {
+                [TOOL_MODES?.PEN]:              "crosshair",
+                [TOOL_MODES?.ERASER]:           "cell",
+                [TOOL_MODES?.HIGHLIGHT_BRUSH]:  "crosshair",
+                [TOOL_MODES?.STICKY_NOTE]:      "copy",
+                [TOOL_MODES?.DRAW_LINE]:        "crosshair",
+                [TOOL_MODES?.ADD_BOX]:          "crosshair",
+            }[tool] || "text";
 
             const onMatchesFound = setSearchMatches;
             const selectedColor = pdfDrawingColor;
 
             // Updated internal handlers
             const onThumbnailsClose = () => setShowThumbnails(false);
-            const onPageJumpClose = () => setShowPageJump(false);
 
             // --- SECTION 5: REFS & CORE STATE ---
             const containerRef = useRef();
@@ -98,7 +114,7 @@ const PDFViewer = React.memo(
             // From pdfSelection.js
             const {
                 popupData, multiSelections, setMultiSelections, addToMultiSelect, clearPopup: clearSelectionPopup
-            } = useSelection(containerRef, mode, zoomContentRef, zoomLevel);
+            } = useSelection(containerRef, mode, zoomContentRef, zoomLevel, sourcePdfId);
 
             // From usePdfText.js
             const { renderPdfAnnotation, addPdfText: addPdfTextLogic } = usePdfText(
@@ -124,6 +140,22 @@ const PDFViewer = React.memo(
                 };
             }, [searchText, currentMatchIndex, mode, highlightMatchesOnPage, highlights, pdfAnnotations, renderPdfAnnotation]);
 
+            // On first PDF load, fit to panel width (never zooms in, only out if needed)
+            const hasAutoFit = useRef(false);
+            useEffect(() => {
+                if (pdfDimensions.width <= 0 || hasAutoFit.current) return;
+                const timer = setTimeout(() => {
+                    if (!containerRef.current) return;
+                    const containerWidth = containerRef.current.clientWidth;
+                    if (containerWidth <= 100) return;
+                    // Only zoom out if PDF is wider than panel; cap at 1.0 so we don't zoom in
+                    const fitZoom = Math.min(1.0, (containerWidth - 40) / pdfDimensions.width);
+                    setZoomLevel(Math.max(0.4, fitZoom));
+                    hasAutoFit.current = true;
+                }, 200);
+                return () => clearTimeout(timer);
+            }, [pdfDimensions.width]); // eslint-disable-line react-hooks/exhaustive-deps
+
             // --- SECTION 8: EXPOSED COMMANDS (useImperativeHandle) ---
             useImperativeHandle(ref, () => ({
                 scrollToSnippet(snippet) {
@@ -146,6 +178,41 @@ const PDFViewer = React.memo(
                     setMultiSelections([]); // Clear multi-selections
                     clearSelectionPopup(); // Clear popup
                 },
+                // Returns screen coordinates of a position on a specific page (used by CrossPdfConnectionLayer)
+                getAnchorScreenPos(pageNum, xPct, yPct) {
+                    const content = zoomContentRef.current || containerRef.current;
+                    if (!content) return null;
+                    const pageEl = content.querySelector(`.pdf-page-wrapper[data-page-number="${pageNum}"]`);
+                    if (!pageEl) return null;
+                    const canvas = pageEl.querySelector("canvas");
+                    const el = canvas || pageEl;
+                    const rect = el.getBoundingClientRect();
+                    return {
+                        x: rect.left + (xPct || 0.5) * rect.width,
+                        y: rect.top  + (yPct || 0.5) * rect.height,
+                    };
+                },
+                // Returns { pageNum, xPct, yPct } for a screen coordinate, or null if not over any page
+                getPageAnchorFromScreen(screenX, screenY) {
+                    const content = zoomContentRef.current || containerRef.current;
+                    if (!content) return null;
+                    const pages = content.querySelectorAll(".pdf-page-wrapper[data-page-number]");
+                    for (const pageEl of pages) {
+                        const canvas = pageEl.querySelector("canvas");
+                        const el = canvas || pageEl;
+                        const rect = el.getBoundingClientRect();
+                        if (screenX >= rect.left && screenX <= rect.right &&
+                            screenY >= rect.top  && screenY <= rect.bottom) {
+                            const pageNum = parseInt(pageEl.dataset.pageNumber, 10);
+                            return {
+                                pageNum,
+                                xPct: Math.max(0, Math.min(1, (screenX - rect.left) / rect.width)),
+                                yPct: Math.max(0, Math.min(1, (screenY - rect.top)  / rect.height)),
+                            };
+                        }
+                    }
+                    return null;
+                },
                 scrollToPage(pageNum) {
                     //pdfscrollutils.js
                     scrollToPageUtil(containerRef.current, pageNum, pdfDocRef.current, {
@@ -155,12 +222,57 @@ const PDFViewer = React.memo(
                     });
                 },
                 pdfDoc: pdfDocRef.current,
+                getTotalPages() { return pdfDocRef.current?.numPages || 0; },
                 contractBetweenPages(p1, p2) {
                     // Logic from pdfShrinkExpand.js
                     contractBetween(p1, p2);
                 },
                 addPdfText() {
                     addPdfTextLogic();
+                },
+                async extractAllText() {
+                    // Wait up to 15s for PDF to finish loading
+                    let doc = pdfDocRef.current;
+                    if (!doc) {
+                        for (let i = 0; i < 30 && !pdfDocRef.current; i++) {
+                            await new Promise(r => setTimeout(r, 500));
+                        }
+                        doc = pdfDocRef.current;
+                    }
+                    if (!doc) return "";
+                    const parts = [];
+                    for (let i = 1; i <= doc.numPages; i++) {
+                        const page = await doc.getPage(i);
+                        let pageText = "";
+
+                        // 1) Try regular content stream text
+                        const content = await page.getTextContent();
+                        for (const item of content.items) {
+                            if (!item.str) continue;
+                            pageText += item.str;
+                            if (item.hasEOL) pageText += "\n";
+                            else pageText += " ";
+                        }
+
+                        // 2) If empty, try form field annotations (AcroForm / court system PDFs)
+                        if (!pageText.trim()) {
+                            try {
+                                const annotations = await page.getAnnotations();
+                                for (const ann of annotations) {
+                                    // fieldValue = user-entered data, alternativeText = label
+                                    if (ann.fieldValue) pageText += `${ann.fieldName || ""}: ${ann.fieldValue}\n`;
+                                    else if (ann.alternativeText) pageText += ann.alternativeText + "\n";
+                                    else if (ann.contents) pageText += ann.contents + "\n";
+                                }
+                            } catch (e) { /* ignore */ }
+                        }
+
+                        pageText = pageText.trim();
+                        if (pageText) parts.push(`[Page ${i}]\n${pageText}`);
+                    }
+                    const fullText = parts.join("\n\n");
+                    console.log(`[extractAllText] Extracted ${fullText.length} chars from ${doc.numPages} pages`);
+                    return fullText;
                 }
             }));
 
@@ -176,7 +288,8 @@ const PDFViewer = React.memo(
                             width: "100%", height: "100%", overflow: "auto",
                             backgroundColor: "#f9f9f9", position: "relative",
                             userSelect: (tool === "pen" || tool === "eraser") ? "none" : "text",
-                            scrollBehavior: "auto" // 🚀 Immediate response
+                            cursor: toolCursor,
+                            scrollBehavior: "auto",
                         }}
                     >
                         <div className="pdf-zoom-centering-wrapper" style={{
@@ -239,6 +352,39 @@ const PDFViewer = React.memo(
                                 clearSelectionPopup();
                             }}
                             onClose={clearSelectionPopup}
+                            onBookmark={() => {
+                                const text = popupData.selectedText || "";
+                                const pg = popupData.pageNum || getCurrentPageNum() || 1;
+                                const name = text.trim().slice(0, 80) || `Page ${pg}`;
+                                handleAddBookmark(pg, name);
+                            }}
+                            hasPendingCrossLink={!!(pendingCrossLink && String(pendingCrossLink.pdfId) !== String(sourcePdfId))}
+                            onConnectPdf={() => {
+                                const endpoint = {
+                                    pdfId: sourcePdfId,
+                                    pageNum: popupData.pageNum || 1,
+                                    xPct: popupData.anchorXPct ?? 0.5,
+                                    yPct: popupData.anchorYPct ?? 0.5,
+                                    text: (popupData.selectedText || "").slice(0, 120),
+                                };
+                                if (pendingCrossLink && String(pendingCrossLink.pdfId) !== String(sourcePdfId)) {
+                                    completeCrossLink(endpoint);
+                                } else {
+                                    startCrossLink(endpoint);
+                                }
+                                clearSelectionPopup();
+                            }}
+                            onDragWireStart={(mouseX, mouseY) => {
+                                const endpoint = {
+                                    pdfId: sourcePdfId,
+                                    pageNum: popupData.pageNum || 1,
+                                    xPct: popupData.anchorXPct ?? 0.5,
+                                    yPct: popupData.anchorYPct ?? 0.5,
+                                    text: (popupData.selectedText || "").slice(0, 120),
+                                };
+                                startDragWire(endpoint, mouseX, mouseY);
+                                clearSelectionPopup();
+                            }}
                         />
                     )}
 
@@ -271,12 +417,7 @@ const PDFViewer = React.memo(
                         </React.Fragment>
                     ))}
 
-                    {/* [MODAL LAYER] Side UI Overlays - Lazy Loaded from PageJumpBox.js and PDFThumbnailView.js */}
-                    {showPageJump && (
-                        <React.Suspense fallback={null}>
-                            <PageJumpBox pdfRef={ref} onClose={onPageJumpClose} />
-                        </React.Suspense>
-                    )}
+                    {/* PageJump is now inline in Navbar — no modal here */}
 
                     {showThumbnails && pdfDocRef.current && (
                         <React.Suspense fallback={<div className="pdf-thumbnail-overlay">Loading...</div>}>

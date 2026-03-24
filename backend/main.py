@@ -18,7 +18,10 @@ from src.routers.connection_router import router as connection_router
 from src.routers.pdf_text_router import router as pdf_text_router
 from src.models.pdf_text_model import PdfText
 from src.routers.pdf_brush_highlight_router import router as pdf_brush_highlight_router
-# 🚀 Dev mode: auto-create tables (disable in production)
+from src.routers.bookmark_router import router as bookmark_router
+from src.models.bookmark_model import Bookmark  # noqa: ensure table is registered
+from src.models.workspace_group_model import WorkspaceGroup  # noqa: ensure table is registered
+# Dev mode: auto-create tables (disable in production)
 Base.metadata.create_all(bind=engine)
 
 # FastAPI app
@@ -27,9 +30,24 @@ app = FastAPI(title="Workspace Backend")
 # CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://localhost:3333","https://172.25.0.41:3333","https://beta.mphc.gov.in:8888","https://beta.mphc.gov.in:8888/react","https://beta.mphc.gov.in:8888/react/"],
+    allow_origins=[
+        # Local development
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "http://localhost:3333",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:3333",
+        # HTTPS local (for SSL dev setups)
+        "https://localhost:3333",
+        "https://172.25.0.41:3333",
+        # Production
+        "https://beta.mphc.gov.in:8888",
+        "https://beta.mphc.gov.in:8888/react",
+        "https://beta.mphc.gov.in:8888/react/",
+        # Backend itself (self-referential)
+        "http://localhost:8000",
+    ],
     allow_credentials=True,
-
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -45,6 +63,7 @@ app.include_router(highlight_router, prefix="/highlights", tags=["highlights"])
 app.include_router(pdf_text_router, prefix="/pdf_texts", tags=["pdf_texts"])
 app.include_router(pdf_drawing_line_router, prefix="/pdf_drawing_lines", tags=["pdf_drawing_lines"])
 app.include_router(pdf_brush_highlight_router, prefix="/pdf_brush_highlights", tags=["pdf_brush_highlights"])
+app.include_router(bookmark_router)
 @app.get("/")
 def root():
     return {"ok": True, "msg": "Workspace Backend running"}

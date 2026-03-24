@@ -131,6 +131,26 @@ def get_snippets(pdf_id: int, workspace_id: int, db: Session = Depends(get_db), 
     return result
 
 # ---------------------------------------------------------
+# GET SNIPPETS BY WORKSPACE ID ONLY (multi-PDF workspaces)
+# ---------------------------------------------------------
+@router.get("/workspace/{workspace_id}", response_model=List[SnippetOut])
+def get_snippets_by_workspace(workspace_id: int, db: Session = Depends(get_db), x_user_id: str = Header(...)):
+    snippets = SnippetRepo.get_by_workspace(db, workspace_id, user_id=x_user_id)
+    result = []
+    for s in snippets:
+        resp_content = s.content
+        if s.type == "image" and s.file_data:
+            resp_content = base64.b64encode(s.file_data).decode("utf-8")
+        result.append(SnippetOut(
+            id=s.id, pdf_id=s.pdf_id, workspace_id=s.workspace_id,
+            content=resp_content, type=s.type,
+            x=s.x, y=s.y, page=s.page, width=s.width, height=s.height,
+            x_pct=s.x_pct, y_pct=s.y_pct, width_pct=s.width_pct, height_pct=s.height_pct,
+            created_at=s.created_at, updated_at=s.updated_at
+        ))
+    return result
+
+# ---------------------------------------------------------
 # UPDATE SNIPPET
 # ---------------------------------------------------------
 @router.put("/update/{snippet_id}", response_model=SnippetOut)

@@ -23,6 +23,11 @@ def get_lines(pdf_id: int, workspace_id: int, db: Session = Depends(get_db), x_u
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+@router.get("/workspace/{workspace_id}", response_model=List[LineResponse])
+def get_lines_by_workspace(workspace_id: int, db: Session = Depends(get_db), x_user_id: str = Header(...)) -> List[LineResponse]:
+    return LineRepo.get_by_workspace(db, workspace_id, user_id=x_user_id)
+
+
 @router.put("/update/{line_id}", response_model=LineResponse)
 def update_line(line_id: int, data: LineUpdate, db: Session = Depends(get_db), x_user_id: str = Header(...)) -> LineResponse:
     updated = LineRepo.update(db, line_id, data, user_id=x_user_id)

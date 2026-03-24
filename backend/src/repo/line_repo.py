@@ -26,6 +26,13 @@ class LineRepo:
         return lines
 
     @staticmethod
+    def get_by_workspace(db: Session, workspace_id: int, user_id: str):
+        return db.query(Line).filter(
+            Line.workspace_id == workspace_id,
+            Line.user_id == user_id
+        ).all()
+
+    @staticmethod
     def update(db: Session, line_id: int, data, user_id: str):
         line = db.query(Line).filter(Line.id == line_id, Line.user_id == user_id).first()
         if not line:

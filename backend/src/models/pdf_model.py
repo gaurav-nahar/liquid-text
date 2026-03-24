@@ -22,3 +22,4 @@ class PDFFile(Base):
     pdf_texts = relationship("PdfText", cascade="all, delete", back_populates="pdf")
     pdf_drawing_lines = relationship("PdfDrawingLine", cascade="all, delete", back_populates="pdf")
     brush_highlights = relationship("PdfBrushHighlight", cascade="all, delete", back_populates="pdf")
+    bookmarks = relationship("Bookmark", cascade="all, delete", back_populates="pdf")

@@ -17,6 +17,7 @@ from src.models.box_model import Box
 from src.models.line_model import Line
 from src.models.connection_model import Connection
 from src.models.workspace_model import Workspace
+from src.models.workspace_group_model import WorkspaceGroup
 
 # Request Models
 from src.request.snippet_request import SnippetCreate
@@ -91,9 +92,14 @@ async def save_workspace(pdf_id: int, workspace_id: int, request: Request, db: S
     boxes_raw = {}
     lines_raw = {}
     connections_raw = {}
+    groups_raw = {}
+
+    cross_pdf_links_json = "[]"
 
     for key, value in form.items():
-        if key.startswith("snippets"):
+        if key == "cross_pdf_links":
+            cross_pdf_links_json = value
+        elif key.startswith("snippets"):
             idx, field = extract_index_and_key(key)
             snippets_raw.setdefault(idx, {})[field] = value
         elif key.startswith("boxes"):
@@ -105,6 +111,9 @@ async def save_workspace(pdf_id: int, workspace_id: int, request: Request, db: S
         elif key.startswith("connections"):
             idx, field = extract_index_and_key(key)
             connections_raw.setdefault(idx, {})[field] = value
+        elif key.startswith("groups"):
+            idx, field = extract_index_and_key(key)
+            groups_raw.setdefault(idx, {})[field] = value
 
     for key, val in form.items():
         if isinstance(val, UploadFile):
@@ -121,7 +130,8 @@ async def save_workspace(pdf_id: int, workspace_id: int, request: Request, db: S
     # 3. UPSERT SNIPPETS
     for s_dict in snippets_raw.values():
         frontend_id = s_dict.get("id")
-        s_dict["pdf_id"] = pdf_id
+        # Use snippet's own source_pdf_id if provided (multi-PDF workspace), else fall back to URL pdf_id
+        s_dict["pdf_id"] = safe_int(s_dict.get("source_pdf_id") or s_dict.get("pdf_id")) or pdf_id
         s_dict["workspace_id"] = workspace_id
         s_type = s_dict.get("type")
         
@@ -257,8 +267,105 @@ async def save_workspace(pdf_id: int, workspace_id: int, request: Request, db: S
     db.query(Box).filter(Box.workspace_id == workspace_id, Box.user_id == x_user_id, ~Box.id.in_(touched_box_ids)).delete(synchronize_session=False)
     db.query(Line).filter(Line.workspace_id == workspace_id, Line.user_id == x_user_id, ~Line.id.in_(touched_line_ids)).delete(synchronize_session=False)
     db.query(Connection).filter(Connection.workspace_id == workspace_id, Connection.user_id == x_user_id, ~Connection.id.in_(touched_connection_ids)).delete(synchronize_session=False)
-    
+
+    # 8. UPSERT GROUPS
+    touched_group_client_ids = []
+    for g_dict in groups_raw.values():
+        client_id = g_dict.get("client_id", "")
+        if not client_id:
+            continue
+        touched_group_client_ids.append(client_id)
+        item_ids_raw = g_dict.get("item_ids", "[]")
+        try:
+            item_ids = json.loads(item_ids_raw) if isinstance(item_ids_raw, str) else item_ids_raw
+        except Exception:
+            item_ids = []
+        existing_group = db.query(WorkspaceGroup).filter(
+            WorkspaceGroup.workspace_id == workspace_id,
+            WorkspaceGroup.client_id == client_id
+        ).first()
+        if existing_group:
+            existing_group.name = g_dict.get("name", existing_group.name)
+            existing_group.color = g_dict.get("color", existing_group.color)
+            existing_group.item_ids = item_ids
+            existing_group.collapsed = g_dict.get("collapsed", "false").lower() == "true"
+        else:
+            new_group = WorkspaceGroup(
+                workspace_id=workspace_id,
+                client_id=client_id,
+                name=g_dict.get("name", ""),
+                color=g_dict.get("color", "#e0e7ff"),
+                item_ids=item_ids,
+                collapsed=g_dict.get("collapsed", "false").lower() == "true",
+            )
+            db.add(new_group)
+    # Delete groups that were removed
+    if touched_group_client_ids:
+        db.query(WorkspaceGroup).filter(
+            WorkspaceGroup.workspace_id == workspace_id,
+            ~WorkspaceGroup.client_id.in_(touched_group_client_ids)
+        ).delete(synchronize_session=False)
+    else:
+        # No groups sent → clear all groups for this workspace
+        db.query(WorkspaceGroup).filter(WorkspaceGroup.workspace_id == workspace_id).delete(synchronize_session=False)
+
+    # Save cross-PDF links JSON with remapped snippet/box endpoint IDs.
+    try:
+        raw_cross_links = json.loads(cross_pdf_links_json or "[]")
+    except Exception:
+        raw_cross_links = []
+
+    def remap_cross_link_endpoint(endpoint):
+        if not isinstance(endpoint, dict):
+            return endpoint
+        if endpoint.get("type") != "snippet":
+            return endpoint
+        mapped_id = id_map.get(str(endpoint.get("snippetId")))
+        if mapped_id is None:
+            return endpoint
+        return {**endpoint, "snippetId": mapped_id}
+
+    normalized_cross_links = []
+    for link in raw_cross_links if isinstance(raw_cross_links, list) else []:
+        if not isinstance(link, dict):
+            continue
+        normalized_cross_links.append({
+            **link,
+            "from": remap_cross_link_endpoint(link.get("from")),
+            "to": remap_cross_link_endpoint(link.get("to")),
+        })
+
+    ws.cross_pdf_links_json = json.dumps(normalized_cross_links)
+
     db.commit()
     print(f"[SUCCESS] Workspace {workspace_id} saved for user {x_user_id}")
 
     return {"message": "Workspace saved successfully", "id_map": id_map}
+
+
+@router.get("/cross_pdf_links/{workspace_id}")
+def get_cross_pdf_links(workspace_id: int, db: Session = Depends(get_db)):
+    ws = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+    if not ws:
+        return []
+    raw = ws.cross_pdf_links_json or "[]"
+    try:
+        return json.loads(raw)
+    except Exception:
+        return []
+
+
+@router.get("/groups/{workspace_id}")
+def get_workspace_groups(workspace_id: int, db: Session = Depends(get_db)):
+    groups = db.query(WorkspaceGroup).filter(WorkspaceGroup.workspace_id == workspace_id).all()
+    return [
+        {
+            "id": g.id,
+            "client_id": g.client_id,
+            "name": g.name,
+            "color": g.color,
+            "item_ids": g.item_ids,
+            "collapsed": g.collapsed,
+        }
+        for g in groups
+    ]

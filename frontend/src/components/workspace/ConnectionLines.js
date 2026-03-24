@@ -1,78 +1,127 @@
-import React, { useMemo, memo } from "react";
+import React, { useMemo, memo, useState } from "react";
 
-const ConnectionLines = memo(({ snippets, editableBoxes, connections }) => {
-  // Pre-index items for O(1) lookup
-  const itemsMap = useMemo(() => {
-    const map = new Map();
-    snippets.forEach(s => map.set(String(s.id), s));
-    editableBoxes.forEach(b => map.set(String(b.id), b));
-    return map;
-  }, [snippets, editableBoxes]);
+const getVal = (val, def) => { const n = parseFloat(val); return (isNaN(n) || !isFinite(n)) ? def : n; };
 
-  return (
-    <svg
-      width="100%"
-      height="100%"
-      style={{
-        position: "absolute",
-        top: 0,
-        left: 0,
-        zIndex: 0,
-        pointerEvents: "none",
-        overflow: "visible", // Enable lines to draw outside initial viewport
-      }}
-    >
-      {connections.map(({ from, to }, i) => {
-        const fromNote = itemsMap.get(String(from));
-        const toNote = itemsMap.get(String(to));
+const ConnectionLines = memo(({ snippets, editableBoxes, connections, pdfColorMap = {}, onDeleteConnection }) => {
+    const [hoveredId, setHoveredId] = useState(null);
 
-        if (!fromNote || !toNote) return null;
+    const itemsMap = useMemo(() => {
+        const map = new Map();
+        snippets.forEach(s => map.set(String(s.id), s));
+        editableBoxes.forEach(b => map.set(String(b.id), b));
+        return map;
+    }, [snippets, editableBoxes]);
 
-        // SKIP ANCHOR LINES (Legacy Data Support)
-        // Even though new anchors aren't created, old data may exist.
-        // We must hide lines connected to them to prevent visual clutter.
-        if (
-          fromNote.type === 'anchor' ||
-          toNote.type === 'anchor' ||
-          String(from).includes('anchor-') ||
-          String(to).includes('anchor-')
-        ) {
-          return null;
-        }
+    const rendered = useMemo(() => {
+        const gradients = [];
+        const lines = [];
 
-        // Visual offsets (centered on the item)
-        // Ensure ALL values are numbers to avoid string concatenation bugs (e.g. "100" + 50 = "10050")
-        const getVal = (val, defaultVal) => {
-          const n = parseFloat(val);
-          return (isNaN(n) || !isFinite(n)) ? defaultVal : n;
-        };
+        connections.forEach((conn, i) => {
+            const { from, to } = conn;
+            const fromNote = itemsMap.get(String(from));
+            const toNote = itemsMap.get(String(to));
+            if (!fromNote || !toNote) return;
+            if (
+                fromNote.type === "anchor" || toNote.type === "anchor" ||
+                String(from).includes("anchor-") || String(to).includes("anchor-")
+            ) return;
 
-        const w1 = getVal(fromNote.width, 180);
-        const h1 = getVal(fromNote.height, 60);
-        const w2 = getVal(toNote.width, 180);
-        const h2 = getVal(toNote.height, 60);
+            const x1 = getVal(fromNote.x, 0) + getVal(fromNote.width, 180) / 2;
+            const y1 = getVal(fromNote.y, 0) + getVal(fromNote.height, 60) / 2;
+            const x2 = getVal(toNote.x, 0) + getVal(toNote.width, 180) / 2;
+            const y2 = getVal(toNote.y, 0) + getVal(toNote.height, 60) / 2;
 
-        const x1 = getVal(fromNote.x, 0) + w1 / 2;
-        const y1 = getVal(fromNote.y, 0) + h1 / 2;
-        const x2 = getVal(toNote.x, 0) + w2 / 2;
-        const y2 = getVal(toNote.y, 0) + h2 / 2;
+            const fromPdfId = String(fromNote.pdf_id || "");
+            const toPdfId   = String(toNote.pdf_id   || "");
+            const isCrossPdf = fromPdfId && toPdfId && fromPdfId !== toPdfId;
 
-        return (
-          <line
-            key={`${from}-${to}-${i}`}
-            x1={x1}
-            y1={y1}
-            x2={x2}
-            y2={y2}
-            stroke="#007bff" // Brighter blue for visibility
-            strokeWidth="2.5"
-            strokeOpacity="0.7"
-            strokeDasharray="0" // Force NO dashing
-          />
-        );
-      })}
-    </svg>
-  );
+            const fromColor = pdfColorMap[fromPdfId]?.color || "#007bff";
+            const toColor   = pdfColorMap[toPdfId]?.color   || "#007bff";
+            const gradId    = `grad-${from}-${to}-${i}`;
+
+            if (isCrossPdf) {
+                gradients.push(
+                    <linearGradient key={gradId} id={gradId} gradientUnits="userSpaceOnUse"
+                        x1={x1} y1={y1} x2={x2} y2={y2}>
+                        <stop offset="0%"   stopColor={fromColor} />
+                        <stop offset="100%" stopColor={toColor} />
+                    </linearGradient>
+                );
+            }
+
+            const mx = (x1 + x2) / 2;
+            const my = (y1 + y2) / 2;
+            const connId = conn.id || `${from}-${to}-${i}`;
+
+            lines.push({ connId, x1, y1, x2, y2, mx, my, isCrossPdf, gradId, fromColor });
+        });
+
+        return { gradients, lines };
+    }, [connections, itemsMap, pdfColorMap]);
+
+    return (
+        <svg
+            width="100%"
+            height="100%"
+            style={{ position: "absolute", top: 0, left: 0, zIndex: 0, overflow: "visible" }}
+        >
+            <defs>{rendered.gradients}</defs>
+            {rendered.lines.map(({ connId, x1, y1, x2, y2, mx, my, isCrossPdf, gradId, fromColor }) => {
+                const isHov = hoveredId === connId;
+                return (
+                    <g key={connId}>
+                        {/* Visible line */}
+                        <line
+                            x1={x1} y1={y1} x2={x2} y2={y2}
+                            stroke={isCrossPdf ? `url(#${gradId})` : "#007bff"}
+                            strokeWidth="2.5"
+                            strokeOpacity="0.85"
+                            strokeDasharray={isCrossPdf ? "7 4" : "none"}
+                            style={{ pointerEvents: "none" }}
+                        />
+                        {/* Invisible wide hit area for hover */}
+                        <line
+                            x1={x1} y1={y1} x2={x2} y2={y2}
+                            stroke="transparent" strokeWidth="20"
+                            style={{ pointerEvents: "stroke", cursor: "pointer" }}
+                            onMouseEnter={() => setHoveredId(connId)}
+                            onMouseLeave={() => setHoveredId(null)}
+                        />
+                        {/* PDF ↔ PDF label */}
+                        {isCrossPdf && (
+                            <>
+                                <text x={mx} y={my - 1} textAnchor="middle" fontSize="9"
+                                    fill="white" stroke="white" strokeWidth="3" paintOrder="stroke"
+                                    style={{ pointerEvents: "none", userSelect: "none" }}>
+                                    PDF ↔ PDF
+                                </text>
+                                <text x={mx} y={my - 1} textAnchor="middle" fontSize="9"
+                                    fill="#374151"
+                                    style={{ pointerEvents: "none", userSelect: "none", fontWeight: 600 }}>
+                                    PDF ↔ PDF
+                                </text>
+                            </>
+                        )}
+                        {/* Delete × — shown on hover */}
+                        {isHov && onDeleteConnection && (
+                            <g
+                                transform={`translate(${mx},${my + (isCrossPdf ? 12 : 0)})`}
+                                style={{ cursor: "pointer" }}
+                                onClick={() => onDeleteConnection(connId)}
+                                onMouseEnter={() => setHoveredId(connId)}
+                                onMouseLeave={() => setHoveredId(null)}
+                            >
+                                <circle r={9} fill="#ef4444" stroke="white" strokeWidth={1.5} />
+                                <text textAnchor="middle" dominantBaseline="middle"
+                                    fontSize="11" fontWeight="700" fill="white"
+                                    style={{ userSelect: "none" }}>×</text>
+                            </g>
+                        )}
+                    </g>
+                );
+            })}
+        </svg>
+    );
 });
 
 export default ConnectionLines;

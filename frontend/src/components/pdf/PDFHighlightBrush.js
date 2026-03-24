@@ -11,7 +11,11 @@ const PDFHighlightBrush = memo(({
         tool,
         brushHighlights: existingHighlights,
         highlightBrushColor: selectedColor,
-        handleBrushHighlightCreate: onHighlightCreate
+        handleBrushHighlightCreate: onHighlightCreate,
+        selectedItem,
+        setSnippets,
+        setConnections,
+        setIsDirty,
     } = useApp();
     const isActive = tool === "highlight-brush";
     const canvasRef = useRef(null);
@@ -172,6 +176,25 @@ const PDFHighlightBrush = memo(({
             };
 
             onHighlightCreate(highlight);
+
+            // Auto-connect to selected workspace note if one is active
+            if (selectedItem && selectedItem.id && selectedItem.type !== 'anchor') {
+                const cx = normalizedPath.reduce((s, p) => s + p.xPct, 0) / normalizedPath.length;
+                const cy = normalizedPath.reduce((s, p) => s + p.yPct, 0) / normalizedPath.length;
+                const anchorId = `anchor-brush-${Date.now()}`;
+                const anchor = {
+                    id: anchorId,
+                    type: 'anchor',
+                    x: -1000,
+                    y: -1000,
+                    pageNum: pageNum,
+                    data: { xPct: cx, yPct: cy, pageNum },
+                    text: `Brush highlight p.${pageNum}`,
+                };
+                setSnippets(prev => [...prev, anchor]);
+                setConnections(prev => [...prev, { from: String(selectedItem.id), to: anchorId }]);
+                setIsDirty(true);
+            }
         }
 
         setIsDrawing(false);

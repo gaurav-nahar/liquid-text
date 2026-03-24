@@ -66,7 +66,14 @@ class SnippetRepo:
     @staticmethod
     def get_by_pdf(db: Session, pdf_id: int, workspace_id: int, user_id: str):
         return db.query(Snippet).filter(
-            Snippet.pdf_id == pdf_id, 
+            Snippet.pdf_id == pdf_id,
+            Snippet.workspace_id == workspace_id,
+            Snippet.user_id == user_id
+        ).all()
+
+    @staticmethod
+    def get_by_workspace(db: Session, workspace_id: int, user_id: str):
+        return db.query(Snippet).filter(
             Snippet.workspace_id == workspace_id,
             Snippet.user_id == user_id
         ).all()

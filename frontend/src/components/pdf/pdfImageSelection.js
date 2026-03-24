@@ -7,7 +7,7 @@ import { attachImageDragHandler } from "./pdfDragHandlers";
  * @param {Function} clearSelectionBox - Function to clear selection box
  * @param {string} mode - Current mode
  */
-export const handleImageSelection = (containerRef, selectionBoxRect, clearSelectionBox, mode) => {
+export const handleImageSelection = (containerRef, selectionBoxRect, clearSelectionBox, mode, zoomLevel = 1, sourcePdfId = null) => {
     if (!selectionBoxRect) return;
 
     clearSelectionBox();
@@ -88,6 +88,7 @@ export const handleImageSelection = (containerRef, selectionBoxRect, clearSelect
             height: cropH,
             pageNum: pageNumber,
             fromPDF: true,
+            ...(sourcePdfId != null && { pdf_id: sourcePdfId }),
             x: left,
             y: top,
             xPct: (selectionBoxRect.left - canvasRect.left) / canvasRect.width,
