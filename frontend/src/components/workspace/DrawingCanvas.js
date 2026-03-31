@@ -54,10 +54,15 @@ const DrawingCanvas = memo(({ tool, lines, setLines, selectedColor }) => {
 
     const nativeEvent = e.evt;
     if (!nativeEvent) return;
+
+    // 👆 Finger (touch) passes through — lets user pan/scroll the workspace while drawing with pen
+    if (nativeEvent.pointerType === 'touch') return;
+
     nativeEvent.preventDefault(); // Stop scrolling/etc
     nativeEvent.stopPropagation();
 
-    if (nativeEvent.type === "mousedown" && nativeEvent.button !== 0) return;
+    // For pointer events: only left button or pen (ignore right-click, barrel button, etc.)
+    if (nativeEvent.pointerType === 'mouse' && nativeEvent.button !== 0) return;
 
     isDrawing.current = true;
     const clientX = nativeEvent.clientX || nativeEvent.touches?.[0]?.clientX;
@@ -79,7 +84,7 @@ const DrawingCanvas = memo(({ tool, lines, setLines, selectedColor }) => {
     if (!isDrawing.current || (tool !== "pen" && tool !== "eraser")) return;
 
     const nativeEvent = e.evt;
-    if (!nativeEvent) return;
+    if (!nativeEvent || nativeEvent.pointerType === 'touch') return; // Touch scrolls, pen draws
     nativeEvent.preventDefault();
     nativeEvent.stopPropagation();
 
@@ -172,12 +177,9 @@ const DrawingCanvas = memo(({ tool, lines, setLines, selectedColor }) => {
         width={size.width}
         height={size.height}
         pixelRatio={1} // Prevents blurry but heavy high-DPI canvases
-        onMouseDown={handlePointerDown}
-        onMouseMove={handlePointerMove}
-        onMouseUp={handlePointerUp}
-        onTouchStart={handlePointerDown}
-        onTouchMove={handlePointerMove}
-        onTouchEnd={handlePointerUp}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
         style={{
           pointerEvents: (tool === "pen" || tool === "eraser") ? "auto" : "none",
         }}

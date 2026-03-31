@@ -1,10 +1,17 @@
-from fastapi import FastAPI, HTTPException
+import logging
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 import httpx
 
 # Database
 from src.db.db import Base, engine, get_db
+from sqlalchemy import text
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+)
 
 # Routers
 from src.routers.workspace_router import router as workspace_router
@@ -21,11 +28,17 @@ from src.routers.pdf_brush_highlight_router import router as pdf_brush_highlight
 from src.routers.bookmark_router import router as bookmark_router
 from src.models.bookmark_model import Bookmark  # noqa: ensure table is registered
 from src.models.workspace_group_model import WorkspaceGroup  # noqa: ensure table is registered
-# Dev mode: auto-create tables (disable in production)
-Base.metadata.create_all(bind=engine)
+from src.routers.documentation_router import router as documentation_router
+from src.models.documentation_model import DocumentationPage  # noqa: ensure table is registered
+# NOTE: create_all disabled for production. Run migrations manually before deploying.
+# Base.metadata.create_all(bind=engine)
 
 # FastAPI app
 app = FastAPI(title="Workspace Backend")
+
+# Warm up Redis connection on startup (non-blocking — fails gracefully)
+from src.cache.cache import get_redis as _init_redis
+_init_redis()
 
 # CORS
 app.add_middleware(
@@ -40,16 +53,12 @@ app.add_middleware(
         # HTTPS local (for SSL dev setups)
         "https://localhost:3333",
         "https://172.25.0.41:3333",
-        # Production
-        "https://beta.mphc.gov.in:8888",
-        "https://beta.mphc.gov.in:8888/react",
-        "https://beta.mphc.gov.in:8888/react/",
         # Backend itself (self-referential)
         "http://localhost:8000",
     ],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization", "X-User-ID", "Accept"],
 )
 
 # Include routers
@@ -64,8 +73,26 @@ app.include_router(pdf_text_router, prefix="/pdf_texts", tags=["pdf_texts"])
 app.include_router(pdf_drawing_line_router, prefix="/pdf_drawing_lines", tags=["pdf_drawing_lines"])
 app.include_router(pdf_brush_highlight_router, prefix="/pdf_brush_highlights", tags=["pdf_brush_highlights"])
 app.include_router(bookmark_router)
+app.include_router(documentation_router, prefix="/documentation", tags=["documentation"])
 @app.get("/")
 def root():
     return {"ok": True, "msg": "Workspace Backend running"}
+
+
+@app.get("/health")
+def health_check():
+    """Health check for load balancers and Docker HEALTHCHECK."""
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        db_status = "ok"
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Database unavailable: {e}")
+
+    from src.cache.cache import get_redis
+    redis_client = get_redis()
+    redis_status = "ok" if redis_client is not None else "unavailable (non-fatal)"
+
+    return {"status": "ok", "database": db_status, "redis": redis_status}
 
 

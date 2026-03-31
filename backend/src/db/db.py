@@ -22,7 +22,13 @@ if DATABASE_URL.startswith("sqlite"):
         poolclass=StaticPool
     )
 else:
-    engine = create_engine(DATABASE_URL)
+    engine = create_engine(
+        DATABASE_URL,
+        pool_size=20,
+        max_overflow=10,
+        pool_pre_ping=True,
+        pool_recycle=1800,
+    )
 
 # SessionLocal for FastAPI
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

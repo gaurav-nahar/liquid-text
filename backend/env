@@ -1,1 +1,6 @@
 DATABASE_URL=postgresql://postgres:Abhi%403105@localhost:5432/liquidtext
+
+SUMMARY_SERVICE_URL=http://172.25.0.235:8010/summarize
+SUMMARY_SERVICE_TIMEOUT=900
+
+    

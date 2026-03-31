@@ -1,6 +1,8 @@
-import { useCanvas } from "./InfiniteCanvas"; // Ensure useCanvas is exported
+import { useCanvasStable } from "./InfiniteCanvas"; // stable: no re-render on pan/zoom
 import React, { useState, useCallback, memo, useRef, useEffect } from "react";
 import ItemContextMenu from "./ItemContextMenu";
+import RichTextToolbar from "./RichTextToolbar";
+import { toRichTextHtml } from "./richTextUtils";
 const SingleBox = memo(({
   box,
   onDrag,
@@ -16,22 +18,10 @@ const SingleBox = memo(({
   onDelete
 }) => {
   const [isEditing, setIsEditing] = useState(false);
-  const [textAlign, setTextAlign] = useState("left");   // stored in React state → applied via JSX, survives re-renders
   const [showSizeMenu, setShowSizeMenu] = useState(false);
   const boxRef = useRef();
   const textareaRef = useRef();
   const isEditingRef = useRef(false);
-
-  // Font size: called from custom dropdown buttons using onMouseDown+preventDefault
-  // Focus stays in contentEditable so execCommand works immediately
-  const applyFontSize = (sizePx) => {
-    document.execCommand('fontSize', false, '7');
-    textareaRef.current?.querySelectorAll('[size="7"]').forEach(el => {
-      el.removeAttribute('size');
-      el.style.fontSize = sizePx + 'px';
-    });
-    setShowSizeMenu(false);
-  };
 
   // Keep ref in sync for use in effects that shouldn't re-run on isEditing change
   useEffect(() => { isEditingRef.current = isEditing; }, [isEditing]);
@@ -39,7 +29,7 @@ const SingleBox = memo(({
   // Sync box.text → innerHTML when content changes externally (load/undo) but not while user is typing
   useEffect(() => {
     if (textareaRef.current && !isEditingRef.current) {
-      textareaRef.current.innerHTML = box.text || '';
+      textareaRef.current.innerHTML = toRichTextHtml(box.text || "");
     }
   }, [box.text]);
 
@@ -55,7 +45,7 @@ const SingleBox = memo(({
   const pressTimer = useRef(null); // Timer for long press
   const isMoved = useRef(false); // Track if user is dragging
   const startPos = useRef({ x: 0, y: 0 }); // Track starting position for movement threshold
-  const { getScale } = useCanvas();
+  const { getScale } = useCanvasStable();
 
 
    const handleDoubleClick = (e) => {
@@ -65,51 +55,40 @@ const SingleBox = memo(({
       setTimeout(() => textareaRef.current?.focus(), 50);
     }
   };
-  // 🖱️ Interaction Handlers
+  // 🖱️✏️📱 Unified pointer handler (mouse + touch + pen/stylus)
   const handlePressStart = (e) => {
     if (e.ctrlKey || e.metaKey || e.shiftKey) {
-        e.stopPropagation();
-        onMultiSelect?.(box.id);
-        return;
+      e.stopPropagation();
+      onMultiSelect?.(box.id);
+      return;
     }
-    // ✋ Prevent canvas from panning when interacting with this box
     e.stopPropagation();
 
-    // Only prevent default for left clicks/touches to allow context menu to work normally
-    if (e.button === 0 || e.touches) {
-      // e.preventDefault(); // Don't do this yet, might block context menu
-    }
-
-    const clientX = e.clientX ?? e.touches?.[0]?.clientX;
-    const clientY = e.clientY ?? e.touches?.[0]?.clientY;
-
-    pos.current = { x: clientX, y: clientY };
-    startPos.current = { x: clientX, y: clientY };
+    pos.current = { x: e.clientX, y: e.clientY };
+    startPos.current = { x: e.clientX, y: e.clientY };
     isMoved.current = false;
 
-    // Start long press timer
+    // Capture pointer → guaranteed move/up events for fast pen strokes
+    boxRef.current.setPointerCapture(e.pointerId);
+
     if (!isEditing) {
       pressTimer.current = setTimeout(() => {
         if (!isMoved.current) {
-          // Long press triggered
           onContextMenu(e, box.id);
-          // setIsEditing(true);
-          // setTimeout(() => textareaRef.current?.focus(), 50);
           pressTimer.current = null;
         }
       }, 500);
     }
 
-    const handleMove = (moveEvent) => {
-      // ✋ Stop canvas pan during movement
+    const el = boxRef.current;
+    const onMove = (moveEvent) => {
       moveEvent.stopPropagation();
       moveEvent.preventDefault();
 
-      const curX = moveEvent.clientX ?? moveEvent.touches?.[0]?.clientX;
-      const curY = moveEvent.clientY ?? moveEvent.touches?.[0]?.clientY;
-
-      // Calculate distance from start to see if it's a "move"
-      const dist = Math.sqrt(Math.pow(curX - startPos.current.x, 2) + Math.pow(curY - startPos.current.y, 2));
+      const dist = Math.sqrt(
+        Math.pow(moveEvent.clientX - startPos.current.x, 2) +
+        Math.pow(moveEvent.clientY - startPos.current.y, 2)
+      );
       if (dist > 5) {
         isMoved.current = true;
         if (pressTimer.current) {
@@ -118,78 +97,65 @@ const SingleBox = memo(({
         }
       }
 
-      const scale = getScale();
-      const dx = (curX - pos.current.x) / scale;
-      const dy = (curY - pos.current.y) / scale;
-      pos.current = { x: curX, y: curY };
-
-      if (isMoved.current && !isEditing) {
+      if (isMoved.current && !isEditingRef.current) {
+        const scale = getScale();
+        const dx = (moveEvent.clientX - pos.current.x) / scale;
+        const dy = (moveEvent.clientY - pos.current.y) / scale;
+        pos.current = { x: moveEvent.clientX, y: moveEvent.clientY };
         onDrag(box.id, dx, dy);
       }
     };
 
-    const stopInteraction = (endEvent) => {
+    const onUp = () => {
       if (pressTimer.current) {
         clearTimeout(pressTimer.current);
         pressTimer.current = null;
-
-        // If not moved and released within 500ms, it's a one-tap
-        if (!isMoved.current && !isEditing) {
+        if (!isMoved.current && !isEditingRef.current) {
           onBoxClick?.(box);
         }
       }
-
-      window.removeEventListener("mousemove", handleMove);
-      window.removeEventListener("mouseup", stopInteraction);
-      window.removeEventListener("touchmove", handleMove);
-      window.removeEventListener("touchend", stopInteraction);
+      el.removeEventListener("pointermove", onMove);
+      el.removeEventListener("pointerup", onUp);
+      el.removeEventListener("pointercancel", onUp);
     };
 
-    window.addEventListener("mousemove", handleMove);
-    window.addEventListener("mouseup", stopInteraction);
-    window.addEventListener("touchmove", handleMove, { passive: false });
-    window.addEventListener("touchend", stopInteraction);
+    el.addEventListener("pointermove", onMove);
+    el.addEventListener("pointerup", onUp);
+    el.addEventListener("pointercancel", onUp);
   };
 
-  // 📐 Resize Handlers
+  // 📐 Resize — pointer capture so pen never loses the handle mid-drag
   const startResize = (e) => {
     e.stopPropagation();
-    const startX = e.clientX ?? e.touches?.[0]?.clientX;
-    const startY = e.clientY ?? e.touches?.[0]?.clientY;
+    const startX = e.clientX;
+    const startY = e.clientY;
     const startWidth = box.width || 160;
     const startHeight = box.height || 80;
     const scale = getScale();
 
+    const el = e.currentTarget;
+    el.setPointerCapture(e.pointerId);
+
     const doResize = (moveEvent) => {
-      const curX = moveEvent.clientX ?? moveEvent.touches?.[0]?.clientX;
-      const curY = moveEvent.clientY ?? moveEvent.touches?.[0]?.clientY;
-      const deltaX = (curX - startX) / scale;
-      const deltaY = (curY - startY) / scale;
-
-      const newWidth = Math.max(50, startWidth + deltaX);
-      const newHeight = Math.max(50, startHeight + deltaY);
-      onResize(box.id, newWidth, newHeight);
+      const deltaX = (moveEvent.clientX - startX) / scale;
+      const deltaY = (moveEvent.clientY - startY) / scale;
+      onResize(box.id, Math.max(50, startWidth + deltaX), Math.max(50, startHeight + deltaY));
     };
-
     const stopResize = () => {
-      window.removeEventListener("mousemove", doResize);
-      window.removeEventListener("mouseup", stopResize);
-      window.removeEventListener("touchmove", doResize);
-      window.removeEventListener("touchend", stopResize);
+      el.removeEventListener("pointermove", doResize);
+      el.removeEventListener("pointerup", stopResize);
+      el.removeEventListener("pointercancel", stopResize);
     };
-
-    window.addEventListener("mousemove", doResize);
-    window.addEventListener("mouseup", stopResize);
-    window.addEventListener("touchmove", doResize, { passive: false });
-    window.addEventListener("touchend", stopResize);
+    el.addEventListener("pointermove", doResize);
+    el.addEventListener("pointerup", stopResize);
+    el.addEventListener("pointercancel", stopResize);
   };
 
   return (
     <div
       ref={boxRef}
       id={`workspace-item-${box.id}`}
-      onMouseDown={handlePressStart}
-      onTouchStart={handlePressStart}
+      onPointerDown={handlePressStart}
       onDoubleClick={handleDoubleClick}
       onClick={(e) => {
         if (e.ctrlKey || e.metaKey || e.shiftKey) {
@@ -231,8 +197,8 @@ const SingleBox = memo(({
       {/* ❌ Delete Button — corner badge outside the box */}
       {(isSelected || isMultiSelected) && !isEditing && (
         <div
-          onMouseDown={e => e.stopPropagation()}
-          onClick={e => { e.stopPropagation(); onDelete?.(box.id); }}
+          onPointerDown={e => { e.stopPropagation(); e.preventDefault(); }}
+          onPointerUp={e => { e.stopPropagation(); onDelete?.(box.id); }}
           title="Delete"
           style={{
             position: "absolute", top: -9, right: -9,
@@ -265,153 +231,19 @@ const SingleBox = memo(({
         boxShadow: "0 2px 4px rgba(0,0,0,0.2)",
         cursor: "pointer",
         pointerEvents: "auto"
-      }} onClick={(e) => { e.stopPropagation(); onBoxClick?.(box); }}>
+      }}
+      onPointerDown={e => e.stopPropagation()}
+      onClick={(e) => { e.stopPropagation(); onBoxClick?.(box); }}>
         🔗
       </div>
 
       {/* Formatting toolbar — visible when editing */}
       {isEditing && (
-        <div
-          onMouseDown={(e) => e.stopPropagation()}
-          style={{
-            position: "absolute", top: -46, left: 0,
-            display: "flex", alignItems: "center", gap: 1, padding: "5px 10px",
-            background: "rgba(22,22,26,0.95)", borderRadius: 10,
-            zIndex: 100, whiteSpace: "nowrap",
-            boxShadow: "0 4px 16px rgba(0,0,0,0.35)",
-            minWidth: "max-content",
-          }}
-        >
-          {/* Font size — custom button dropdown (keeps focus in contentEditable) */}
-          <div style={{ position: "relative" }}>
-            <button
-              onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); setShowSizeMenu(v => !v); }}
-              title="Font size"
-              style={{
-                background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)",
-                borderRadius: 5, color: "rgba(255,255,255,0.9)", fontSize: 11, fontWeight: 600,
-                padding: "3px 7px", cursor: "pointer", lineHeight: 1.4, minWidth: 36,
-              }}
-            >px</button>
-            {showSizeMenu && (
-              <div
-                onMouseDown={(e) => e.stopPropagation()}
-                style={{
-                  position: "absolute", top: "calc(100% + 5px)", left: 0,
-                  background: "rgba(22,22,26,0.98)", borderRadius: 8,
-                  boxShadow: "0 4px 20px rgba(0,0,0,0.4)",
-                  display: "grid", gridTemplateColumns: "1fr 1fr",
-                  gap: 2, padding: 6, zIndex: 200, minWidth: 80,
-                }}
-              >
-                {[10, 11, 12, 13, 14, 16, 18, 20, 24, 28, 32, 36].map(s => (
-                  <button
-                    key={s}
-                    onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); applyFontSize(s); }}
-                    style={{
-                      background: "transparent", border: "none", cursor: "pointer",
-                      color: "rgba(255,255,255,0.85)", padding: "4px 6px",
-                      borderRadius: 4, fontSize: 11, fontWeight: 500, textAlign: "center",
-                    }}
-                    onMouseEnter={e => e.currentTarget.style.background = "rgba(255,255,255,0.1)"}
-                    onMouseLeave={e => e.currentTarget.style.background = "transparent"}
-                  >{s}</button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Separator */}
-          <div style={{ width: 1, height: 18, background: "rgba(255,255,255,0.15)", margin: "0 4px" }} />
-
-          {/* Text style buttons — B I U */}
-          {[
-            { cmd: "bold",      label: "B", style: { fontWeight: 800, fontSize: 14 } },
-            { cmd: "italic",    label: "I", style: { fontStyle: "italic", fontSize: 14 } },
-            { cmd: "underline", label: "U", style: { textDecoration: "underline", fontSize: 14 } },
-          ].map(({ cmd, label, style }) => (
-            <button
-              key={cmd}
-              onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); document.execCommand(cmd); }}
-              title={cmd.charAt(0).toUpperCase() + cmd.slice(1)}
-              style={{
-                background: "transparent", border: "none", cursor: "pointer",
-                color: "rgba(255,255,255,0.9)", padding: "4px 9px",
-                borderRadius: 5, lineHeight: 1.4, ...style,
-              }}
-            >{label}</button>
-          ))}
-
-          {/* Separator */}
-          <div style={{ width: 1, height: 18, background: "rgba(255,255,255,0.15)", margin: "0 4px" }} />
-
-          {/* List buttons */}
-          {[
-            { cmd: "insertOrderedList",
-              icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="10" y1="6" x2="21" y2="6"/><line x1="10" y1="12" x2="21" y2="12"/><line x1="10" y1="18" x2="21" y2="18"/><path d="M4 6h1v4"/><path d="M4 10H6"/><path d="M6 18H4c0-1 2-2 2-3s-1-1.5-2-1.5"/></svg>,
-              title: "Numbered list" },
-            { cmd: "insertUnorderedList",
-              icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="9" y1="6" x2="20" y2="6"/><line x1="9" y1="12" x2="20" y2="12"/><line x1="9" y1="18" x2="20" y2="18"/><circle cx="4" cy="6" r="1" fill="currentColor"/><circle cx="4" cy="12" r="1" fill="currentColor"/><circle cx="4" cy="18" r="1" fill="currentColor"/></svg>,
-              title: "Bullet list" },
-          ].map(({ cmd, icon, title }) => (
-            <button
-              key={cmd}
-              onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); document.execCommand(cmd); }}
-              title={title}
-              style={{
-                background: "transparent", border: "none", cursor: "pointer",
-                color: "rgba(255,255,255,0.9)", padding: "4px 8px",
-                borderRadius: 5, display: "flex", alignItems: "center",
-              }}
-            >{icon}</button>
-          ))}
-
-          {/* Separator */}
-          <div style={{ width: 1, height: 18, background: "rgba(255,255,255,0.15)", margin: "0 4px" }} />
-
-          {/* Alignment — stored in React state, applied via JSX style on the contentEditable div */}
-          {[
-            { align: "left",
-              icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="18" y2="18"/></svg>,
-              title: "Align left" },
-            { align: "center",
-              icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="6" y1="12" x2="18" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>,
-              title: "Align center" },
-            { align: "right",
-              icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="9" y1="12" x2="21" y2="12"/><line x1="6" y1="18" x2="21" y2="18"/></svg>,
-              title: "Align right" },
-          ].map(({ align, icon, title }) => (
-            <button
-              key={align}
-              onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); setTextAlign(align); }}
-              title={title}
-              style={{
-                background: textAlign === align ? "rgba(255,255,255,0.15)" : "transparent",
-                border: "none", cursor: "pointer",
-                color: "rgba(255,255,255,0.9)", padding: "4px 8px",
-                borderRadius: 5, display: "flex", alignItems: "center",
-              }}
-            >{icon}</button>
-          ))}
-
-          {/* Separator */}
-          <div style={{ width: 1, height: 18, background: "rgba(255,255,255,0.15)", margin: "0 4px" }} />
-
-          {/* Text color */}
-          <label
-            title="Text color"
-            onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
-            style={{ display: "flex", alignItems: "center", cursor: "pointer", padding: "4px 6px", gap: 3 }}
-          >
-            <span style={{ fontSize: 13, color: "rgba(255,255,255,0.9)", fontWeight: 700 }}>A</span>
-            <input
-              type="color"
-              defaultValue="#000000"
-              onChange={(e) => { document.execCommand("foreColor", false, e.target.value); textareaRef.current?.focus(); }}
-              style={{ width: 16, height: 16, border: "none", padding: 0, cursor: "pointer", borderRadius: 3 }}
-            />
-          </label>
-        </div>
+        <RichTextToolbar
+          editorRef={textareaRef}
+          showSizeMenu={showSizeMenu}
+          setShowSizeMenu={setShowSizeMenu}
+        />
       )}
 
       {/* Inner clip wrapper — clips content to box bounds */}
@@ -423,8 +255,10 @@ const SingleBox = memo(({
         <div
           ref={textareaRef}
           id={`text-box-input-${box.id}`}
+          className="workspace-rich-text"
           contentEditable={isEditing}
           suppressContentEditableWarning
+          dir="auto"
           onFocus={() => setIsEditing(true)}
           onBlur={() => { setIsEditing(false); setShowSizeMenu(false); }}
           onInput={(e) => onChange(box.id, e.currentTarget.innerHTML)}
@@ -434,7 +268,7 @@ const SingleBox = memo(({
             }
             e.stopPropagation();
           }}
-          onMouseDown={(e) => isEditing && e.stopPropagation()}
+          onPointerDown={(e) => isEditing && e.stopPropagation()}
           onWheel={(e) => e.stopPropagation()}
           style={{
             width: "100%",
@@ -452,15 +286,15 @@ const SingleBox = memo(({
             scrollbarColor: "#ccc transparent",
             boxSizing: "border-box",
             wordBreak: "break-word",
-            textAlign,
+            whiteSpace: "pre-wrap",
+            lineHeight: 1.5,
           }}
         />
       </div>
 
       {/* Resize handle */}
       <div
-        onMouseDown={startResize}
-        onTouchStart={startResize}
+        onPointerDown={startResize}
         style={{
           position: "absolute",
           bottom: 0,

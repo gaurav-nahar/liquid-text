@@ -10,7 +10,9 @@ import GroupLayer from "./GroupLayer";
 import useSnippetHandlers from "../../hooks/useSnippetHandlers";
 import useBoxHandlers from "./useBoxHandlers";
 import useConnections from "../../hooks/useConnections";
-import { useApp } from "../../context/AppContext";
+import { useWorkspace } from "../../context/WorkspaceContext";
+import { useUI } from "../../context/UIContext";
+import { useAppActions } from "../../context/AppContext";
 import { showToast } from "../layout/Toast";
 // Lazy Components
 import { initGlobalTouchDrag } from "../pdf/pdfDragHandlers";
@@ -25,18 +27,14 @@ const WorkspaceSidebar = React.lazy(() => import("../layout/WorkspaceSidebar"));
  */
 const Workspace = () => {
     const {
-        tool,
-        TOOL_MODES,
         pdfId,
         activeWorkspace,
-        showWorkspaceSidebar, setShowWorkspaceSidebar,
         snippets, setSnippets,
         editableBoxes, setEditableBoxes,
         connections, setConnections,
         selectedItem, setSelectedItem,
         lineStartId, setLineStartId,
         lines, setLines,
-        pdfDrawingColor,
         handleDeleteSnippet,
         handleDeleteBox,
         canvasRef,
@@ -45,9 +43,20 @@ const Workspace = () => {
         setIsDirty,
         recordHistory, getSnapshot,
         groups, handleCreateGroup, handleUngroupItems, handleToggleGroupCollapse, handleSetGroupColor, handleRenameGroup,
-        pdfTabs, jumpToSource,
-        startDragWire, pdfId: activePdfId,
-    } = useApp();
+    } = useWorkspace();
+
+    const {
+        tool,
+        TOOL_MODES,
+        showWorkspaceSidebar, setShowWorkspaceSidebar,
+        pdfDrawingColor,
+        pdfTabs,
+        startDragWire,
+    } = useUI();
+
+    const { jumpToSource } = useAppActions();
+
+    const activePdfId = pdfId;
 
     // Build a map: pdfId → { color, name } for snippet tinting
     const pdfColorMap = React.useMemo(() => {
@@ -253,9 +262,11 @@ const Workspace = () => {
     const handleUnifiedDown = (e) => {
         if (tool === TOOL_MODES.SELECT) {
             if (!e.shiftKey) { setSelectedItem(null); setSelectedItems([]); }
-            const worldPos = screenToWorld(e.clientX, e.clientY);
-            rubberBandStart.current = worldPos;
-            isRubberBanding.current = true;
+            if (e.shiftKey) {
+                const worldPos = screenToWorld(e.clientX, e.clientY);
+                rubberBandStart.current = worldPos;
+                isRubberBanding.current = true;
+            }
         }
         handleMouseDown(getTouchEvent(e));
     };
@@ -364,7 +375,7 @@ const Workspace = () => {
                     return s ? JSON.parse(s).pan : { x: 0, y: 0 };
                 })()}
                 onViewChange={(v) => { viewStateRef.current = v; }}
-                panningEnabled={tool !== TOOL_MODES.SELECT && tool !== TOOL_MODES.ADD_BOX}
+                panningEnabled={tool !== TOOL_MODES.ADD_BOX}
             >
                 {/* Tool status hint */}
                 <div style={{ position: "absolute", bottom: 20, left: 20, zIndex: 10, background: "rgb(221, 240, 212)", padding: "4px 10px", borderRadius: 6, fontSize: 12, color: "#666", pointerEvents: "none" }}>
@@ -547,6 +558,7 @@ const Workspace = () => {
 
             {selectedItems.length >= 2 && (
                 <div
+                    onPointerDown={e => e.stopPropagation()}
                     onMouseDown={e => e.stopPropagation()}
                     style={{
                     position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)',
@@ -557,7 +569,8 @@ const Workspace = () => {
                     <span style={{ fontSize: 12, color: '#666' }}>{selectedItems.length} items selected</span>
                     <button
                         onClick={() => {
-                            handleCreateGroup(selectedItems.map(i => i.id));
+                            const itemIds = selectedItems.map(i => i.id);
+                            handleCreateGroup(itemIds);
                             setSelectedItems([]);
                         }}
                         style={{

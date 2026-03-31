@@ -1,53 +1,46 @@
 
+import { getPdfSelectionDetails } from "./pdfSelectionUtils";
+
+const DEVANAGARI_RE = /[\u0900-\u097F]/;
+
+const buildSelectionOcrImage = (canvas, rect, canvasRect) => {
+  if (!canvas || !canvasRect) return null;
+
+  const scaleX = canvas.width / canvasRect.width;
+  const scaleY = canvas.height / canvasRect.height;
+  const cropX = Math.max(0, (rect.left - canvasRect.left) * scaleX);
+  const cropY = Math.max(0, (rect.top - canvasRect.top) * scaleY);
+  const cropW = Math.min(canvas.width - cropX, rect.width * scaleX);
+  const cropH = Math.min(canvas.height - cropY, rect.height * scaleY);
+
+  if (cropW <= 2 || cropH <= 2) return null;
+
+  const sourceCtx = canvas.getContext("2d", { willReadFrequently: true });
+  if (!sourceCtx) return null;
+
+  const imageData = sourceCtx.getImageData(cropX, cropY, cropW, cropH);
+  const tempCanvas = document.createElement("canvas");
+  tempCanvas.width = cropW;
+  tempCanvas.height = cropH;
+  tempCanvas.getContext("2d", { willReadFrequently: true })?.putImageData(imageData, 0, 0);
+  return tempCanvas.toDataURL("image/png");
+};
+
 export function handleTextDragStart(e, containerRef, mode, zoomLevel = 1, sourcePdfId = null) {
   if (mode !== "select") return;
 
   const selection = window.getSelection();
-  if (!selection || !selection.toString().trim()) return;
-
-  const text = selection.toString();
-  const range = selection.getRangeAt(0);
-  const rect = range.getBoundingClientRect();
-
-  let pageNum = null;
-  const zoomWrapper = containerRef.current.querySelector(".pdf-zoom-content") || containerRef.current;
-  const wrappers = Array.from(zoomWrapper.children);
-  wrappers.forEach((wrapper) => {
-    // Filter: Only consider elements that are actual pages
-    if (!wrapper.dataset.pageNumber) return;
-
-    const wRect = wrapper.getBoundingClientRect();
-
-    // Check if selection rect overlaps with wrapper vertically
-    const overlapH = Math.min(rect.bottom, wRect.bottom) - Math.max(rect.top, wRect.top);
-
-    if (overlapH > 0) {
-      // Pick the page with the most vertical overlap
-      if (!pageNum || overlapH > (range.getBoundingClientRect().height / 2)) {
-        // CRITICAL: Read the ID from the DOM, don't guess from the index (which might include selection box)
-        pageNum = parseInt(wrapper.dataset.pageNumber, 10);
-      }
-    }
+  const selectionDetails = getPdfSelectionDetails(selection, containerRef, {
+    current: containerRef.current.querySelector(".pdf-zoom-content") || containerRef.current,
   });
+  if (!selectionDetails?.selectedText) return;
 
-  if (!pageNum) return;
+  const { rect, pageNum, canvas, canvasRect, selectedText: text } = selectionDetails;
 
   // 📸 TEXT SNIPPET CREATION (No Image Magic)
-  // 1. Get the canvas for this page to calculate relative coordinates
-  // Use robust find instead of index assumption
-  const pageWrapper = Array.from(zoomWrapper.children).find(
-    (el) => parseInt(el.dataset.pageNumber, 10) === pageNum
-  );
-  if (!pageWrapper) {
-    console.warn(`Page wrapper not found for page ${pageNum}`);
-    return;
-  }
-
-  const canvas = pageWrapper.querySelector("canvas");
-
-  if (canvas) {
-    const canvasRect = canvas.getBoundingClientRect();
+  if (canvas && canvasRect) {
     const zoomScale = zoomLevel; // Use passed zoomLevel
+    const shouldAttachOcrImage = !DEVANAGARI_RE.test(text);
 
     // 2. Create Text Snippet
     const snippet = {
@@ -66,6 +59,7 @@ export function handleTextDragStart(e, containerRef, mode, zoomLevel = 1, source
       heightPct: rect.height / canvasRect.height,
       pageNum,
       fromPDF: true,
+      ...(shouldAttachOcrImage ? { ocrImage: buildSelectionOcrImage(canvas, rect, canvasRect) } : {}),
       ...(sourcePdfId != null && { pdf_id: sourcePdfId }),
     };
 
@@ -102,40 +96,39 @@ export function attachImageDragHandler(imgEl, snippet, mode) {
     e.dataTransfer.setDragImage(dragImg, snippet.width / 2, snippet.height / 2);
   });
 
-  // Touch drag
-  let touchDragElement = null;
+  // Touch + pen drag via Pointer Events (works for touch AND Wacom stylus)
+  let pointerDragActive = false;
 
-  imgEl.addEventListener("touchstart", (e) => {
-    if (mode !== "select" || (e.touches && e.touches.length !== 1)) return;
-    e.stopPropagation(); // 🛑 Stop pdfSelection from seeing this
-    touchDragElement = imgEl;
-    imgEl._touchStartX = e.touches[0].clientX;
-    imgEl._touchStartY = e.touches[0].clientY;
+  imgEl.addEventListener("pointerdown", (e) => {
+    if (mode !== "select") return;
+    if (e.pointerType === 'mouse') return; // Mouse uses native dragstart above
+    e.preventDefault(); // Prevent browser default pen pan / ink behavior
+    e.stopPropagation();
+    pointerDragActive = true;
+    imgEl._ptrStartX = e.clientX;
+    imgEl._ptrStartY = e.clientY;
+    imgEl.setPointerCapture(e.pointerId);
   }, { passive: false });
 
-  imgEl.addEventListener("touchmove", (e) => {
-    if (!touchDragElement || (e.touches && e.touches.length !== 1)) return;
-    const dx = e.touches[0].clientX - imgEl._touchStartX;
-    const dy = e.touches[0].clientY - imgEl._touchStartY;
-    if (Math.abs(dx) > 10 || Math.abs(dy) > 10) {
-      // Dispatch globally so App.js or a global handler can pick it up
+  imgEl.addEventListener("pointermove", (e) => {
+    if (!pointerDragActive) return;
+    e.preventDefault();
+    const dx = e.clientX - imgEl._ptrStartX;
+    const dy = e.clientY - imgEl._ptrStartY;
+    // Pen needs a smaller threshold (3px) vs touch (10px) since stylus is more precise
+    const threshold = e.pointerType === 'pen' ? 3 : 10;
+    if (Math.abs(dx) > threshold || Math.abs(dy) > threshold) {
       window.dispatchEvent(
         new CustomEvent("pdf-touch-drag-start", {
-          detail: {
-            snippet,
-            startX: e.touches[0].clientX,
-            startY: e.touches[0].clientY
-          }
+          detail: { snippet, startX: e.clientX, startY: e.clientY }
         })
       );
-      touchDragElement = null;
-      e.preventDefault();
+      pointerDragActive = false;
     }
-  });
+  }, { passive: false });
 
-  imgEl.addEventListener("touchend", () => {
-    touchDragElement = null;
-  });
+  imgEl.addEventListener("pointerup", () => { pointerDragActive = false; });
+  imgEl.addEventListener("pointercancel", () => { pointerDragActive = false; });
 }
 
 /**
@@ -165,9 +158,39 @@ export function initGlobalTouchDrag(addSnippet, screenToWorld, workspaceRef) {
     ghost.style.opacity = '0.8';
     ghost.style.border = '2px dashed #007bff';
     ghost.style.transform = 'translate(-50%, -50%)';
-
     document.body.appendChild(ghost);
 
+    let dropped = false; // guard against double-drop (touch fires both touchend + pointerup)
+
+    const commitDrop = (clientX, clientY) => {
+      if (dropped) return;
+      dropped = true;
+      const workspaceRect = workspaceRef.current?.getBoundingClientRect();
+      if (workspaceRect &&
+        clientX >= workspaceRect.left &&
+        clientX <= workspaceRect.right &&
+        clientY >= workspaceRect.top &&
+        clientY <= workspaceRect.bottom) {
+        const dropPos = screenToWorld(clientX, clientY);
+        if (addSnippet) {
+          addSnippet(snippet, dropPos);
+          if (navigator.vibrate) navigator.vibrate(50);
+        }
+      }
+      ghost.remove();
+      cleanup();
+    };
+
+    const cleanup = () => {
+      window.removeEventListener('touchmove', handleTouchMove);
+      window.removeEventListener('touchend', handleTouchEnd);
+      window.removeEventListener('touchcancel', handleTouchEnd);
+      window.removeEventListener('pointermove', handlePenMove);
+      window.removeEventListener('pointerup', handlePenUp);
+      window.removeEventListener('pointercancel', handlePenUp);
+    };
+
+    // ✋ Touch handlers
     const handleTouchMove = (tm) => {
       const t = tm.touches[0];
       ghost.style.left = `${t.clientX}px`;
@@ -176,38 +199,27 @@ export function initGlobalTouchDrag(addSnippet, screenToWorld, workspaceRef) {
 
     const handleTouchEnd = (te) => {
       const t = te.changedTouches[0];
-      const dropX = t.clientX;
-      const dropY = t.clientY;
+      commitDrop(t.clientX, t.clientY);
+    };
 
-      // Check if dropped inside Workspace
-      const workspaceRect = workspaceRef.current?.getBoundingClientRect();
-      if (workspaceRect &&
-        dropX >= workspaceRect.left &&
-        dropX <= workspaceRect.right &&
-        dropY >= workspaceRect.top &&
-        dropY <= workspaceRect.bottom) {
+    // ✏️ Pen/stylus handlers — pen fires pointermove/pointerup, NOT touchmove/touchend
+    const handlePenMove = (pm) => {
+      if (pm.pointerType === 'touch') return; // touch handled above
+      ghost.style.left = `${pm.clientX}px`;
+      ghost.style.top = `${pm.clientY}px`;
+    };
 
-        // Valid Drop!
-        const dropPos = screenToWorld(dropX, dropY);
-
-        // Add Snippet using passed function
-        if (addSnippet) {
-          addSnippet(snippet, dropPos);
-          // Haptic feedback
-          if (navigator.vibrate) navigator.vibrate(50);
-        }
-      }
-
-      // Cleanup
-      ghost.remove();
-      window.removeEventListener('touchmove', handleTouchMove);
-      window.removeEventListener('touchend', handleTouchEnd);
-      window.removeEventListener('touchcancel', handleTouchEnd);
+    const handlePenUp = (pu) => {
+      if (pu.pointerType === 'touch') return; // touch handled above
+      commitDrop(pu.clientX, pu.clientY);
     };
 
     window.addEventListener('touchmove', handleTouchMove, { passive: false });
     window.addEventListener('touchend', handleTouchEnd);
     window.addEventListener('touchcancel', handleTouchEnd);
+    window.addEventListener('pointermove', handlePenMove);
+    window.addEventListener('pointerup', handlePenUp);
+    window.addEventListener('pointercancel', handlePenUp);
   };
 
   window.addEventListener('pdf-touch-drag-start', handleTouchDragStart);

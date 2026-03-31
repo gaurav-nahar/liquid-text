@@ -1,5 +1,14 @@
 import React from "react";
 import { useApp } from "../../context/AppContext";
+import { toRichTextHtml } from "../workspace/richTextUtils";
+
+// Strip "# PDF Summary" title and numbered prefixes from section headings
+const preprocessSummary = (text) => {
+    if (!text) return text;
+    return text
+        .replace(/^#\s+PDF Summary\s*\n?/m, '')
+        .replace(/^(#{1,3})\s+\d+\.\s+/gm, '$1 ');
+};
 
 const icons = {
     select: (
@@ -122,6 +131,13 @@ const icons = {
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
             <path d="M21 7v6h-6" />
             <path d="M21 13C18.5 7.5 12 5 6 8" />
+        </svg>
+    ),
+    pdfConnect: (
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="5" cy="19" r="2" />
+            <circle cx="19" cy="5" r="2" />
+            <line x1="6.5" y1="17.5" x2="17.5" y2="6.5" strokeDasharray="3 2" />
         </svg>
     ),
 };
@@ -314,7 +330,8 @@ export default function Navbar() {
                 </div>
                 <div className="tool-group">
                     <button className={`tool-btn ${tool === TOOL_MODES.SELECT ? "active" : ""}`} onClick={() => setTool(TOOL_MODES.SELECT)} title="Select">{icons.select}</button>
-                    <button className={`tool-btn ${tool === TOOL_MODES.DRAW_LINE ? "active" : ""}`} onClick={() => setTool(TOOL_MODES.DRAW_LINE)} title="Connection (click-to-click)">{icons.connection}</button>
+                    <button className={`tool-btn ${tool === TOOL_MODES.DRAW_LINE ? "active" : ""}`} onClick={() => setTool(TOOL_MODES.DRAW_LINE)} title="Connect Notes (workspace)">{icons.connection}</button>
+                    <button className={`tool-btn ${tool === TOOL_MODES.PDF_CONNECT ? "active" : ""}`} onClick={() => setTool(TOOL_MODES.PDF_CONNECT)} title="PDF Connect Line (click two points in PDF)">{icons.pdfConnect}</button>
                     <button className={`tool-btn ${tool === TOOL_MODES.ADD_BOX ? "active" : ""}`} onClick={() => setTool(TOOL_MODES.ADD_BOX)} title="Add Text Box">{icons.textBox}</button>
                     <button className={`tool-btn ${tool === TOOL_MODES.PEN ? "active" : ""}`} onClick={() => setTool(TOOL_MODES.PEN)} title="Pen">{icons.pen}</button>
                     <button className={`tool-btn ${tool === TOOL_MODES.ERASER ? "active" : ""}`} onClick={() => setTool(TOOL_MODES.ERASER)} title="Eraser">{icons.eraser}</button>
@@ -383,6 +400,8 @@ export default function Navbar() {
                         title="Autosave Interval"
                     >
                         <option value={0}>Autosave: Off</option>
+                        <option value={3000}>3s</option>
+
                         <option value={30000}>30s</option>
                         <option value={60000}>1m</option>
                         <option value={300000}>5m</option>
@@ -418,7 +437,7 @@ export default function Navbar() {
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                                 {icons.book}
-                                <span style={{ fontSize: 17, fontWeight: 600, color: '#222' }}>PDF Summary</span>
+                                <span style={{ fontSize: 17, fontWeight: 600, color: '#222' }}>Summary</span>
                             </div>
                             <button onClick={() => setShowSummary(false)} style={{
                                 border: 'none', background: 'none', fontSize: 20,
@@ -428,16 +447,22 @@ export default function Navbar() {
 
                         {/* Body */}
                         <div style={{
-                            overflowY: 'auto', flex: 1, fontSize: 14, lineHeight: 1.7,
-                            color: '#333', padding: '4px 0', whiteSpace: 'pre-wrap',
+                            overflowY: 'auto', flex: 1, fontSize: 14, lineHeight: 1.45,
+                            color: '#333', padding: '4px 0',
                             borderTop: '1px solid #eee', paddingTop: 16,
+                            fontFamily: '"Times New Roman", Times, serif',
                         }}>
                             {summaryLoading ? (
                                 <div style={{ textAlign: 'center', color: '#888', paddingTop: 40 }}>
                                     <div style={{ fontSize: 13 }}>Generating summary...</div>
                                 </div>
                             ) : (
-                                summary
+                                <div className="summary-body">
+                                    <div
+                                        className="workspace-rich-text"
+                                        dangerouslySetInnerHTML={{ __html: toRichTextHtml(preprocessSummary(summary)) }}
+                                    />
+                                </div>
                             )}
                         </div>
                     </div>

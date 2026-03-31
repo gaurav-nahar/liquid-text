@@ -1,6 +1,8 @@
 import React, { useRef, useState, useEffect, memo } from "react";
-import { useCanvas } from "./InfiniteCanvas";
+import { useCanvasStable } from "./InfiniteCanvas";
 import ItemContextMenu from "./ItemContextMenu";
+import RichTextToolbar from "./RichTextToolbar";
+import { isRichTextEmpty, toRichTextHtml } from "./richTextUtils";
 
 /**
  * 🗒️ DraggableNote (Workspace Snippets)
@@ -23,75 +25,39 @@ const DraggableNote = memo(({
 }) => {
   const noteRef = useRef();
   const pos = useRef({ x: 0, y: 0 });
-  const { getScale } = useCanvas(); // 🆕 Scale awareness
+  const { getScale } = useCanvasStable();
 
   const [contextMenu, setContextMenu] = useState(null);
 
-  // 🎯 DRAG LOGIC
-  const startDrag = (x, y) => {
-    pos.current = { x, y };
-  };
-
-  const moveDrag = (x, y) => {
-    const scale = getScale ? getScale() : 1; // 🆕 Get current scale
-    const dx = (x - pos.current.x) / scale; // 🆕 Adjust delta by scale
-    const dy = (y - pos.current.y) / scale;
-    pos.current = { x, y };
-
-    onDrag?.(dx, dy);
-  };
-
-  const endDrag = () => {
-    window.removeEventListener("mousemove", handleMouseMove);
-    window.removeEventListener("mouseup", handleMouseUp);
-    window.removeEventListener("touchmove", handleTouchMove);
-    window.removeEventListener("touchend", handleTouchEnd);
-  };
-
-  // 🖱️ Mouse Handlers
-  const handleMouseDown = (e) => {
-    if (disableDrag) {
-      e.stopPropagation();
-      return;
-    }
+  // 🎯 DRAG LOGIC — unified pointer handler (mouse + touch + pen/stylus)
+  const handlePointerDown = (e) => {
+    if (disableDrag) { e.stopPropagation(); return; }
+    if (isEditingRef.current) { e.stopPropagation(); return; }
     e.stopPropagation();
-    // Ctrl/Shift+click = multi-select, don't start drag
     if (e.ctrlKey || e.metaKey || e.shiftKey) return;
+
     onDrag?.(null, null, "drag-start");
-    startDrag(e.clientX, e.clientY);
-    window.addEventListener("mousemove", handleMouseMove);
-    window.addEventListener("mouseup", handleMouseUp);
-  };
+    pos.current = { x: e.clientX, y: e.clientY };
 
-  const handleMouseMove = (e) => {
-    moveDrag(e.clientX, e.clientY);
-  };
+    // Capture pointer → receive all move/up events even during fast pen strokes
+    noteRef.current.setPointerCapture(e.pointerId);
 
-  const handleMouseUp = () => {
-    endDrag();
-  };
-
-  // 🤳 Touch Handlers
-  const handleTouchStart = (e) => {
-    if (disableDrag) {
-      e.stopPropagation();
-      return;
-    }
-    e.stopPropagation();
-    onDrag?.(null, null, "drag-start");
-    const touch = e.touches[0];
-    startDrag(touch.clientX, touch.clientY);
-    window.addEventListener("touchmove", handleTouchMove, { passive: false });
-    window.addEventListener("touchend", handleTouchEnd);
-  };
-
-  const handleTouchMove = (e) => {
-    const touch = e.touches[0];
-    moveDrag(touch.clientX, touch.clientY);
-  };
-
-  const handleTouchEnd = () => {
-    endDrag();
+    const el = noteRef.current;
+    const onMove = (moveEvent) => {
+      const scale = getScale ? getScale() : 1;
+      const dx = (moveEvent.clientX - pos.current.x) / scale;
+      const dy = (moveEvent.clientY - pos.current.y) / scale;
+      pos.current = { x: moveEvent.clientX, y: moveEvent.clientY };
+      onDrag?.(dx, dy);
+    };
+    const onUp = () => {
+      el.removeEventListener("pointermove", onMove);
+      el.removeEventListener("pointerup", onUp);
+      el.removeEventListener("pointercancel", onUp);
+    };
+    el.addEventListener("pointermove", onMove);
+    el.addEventListener("pointerup", onUp);
+    el.addEventListener("pointercancel", onUp);
   };
 
   // ✅ Handle right-click (open context menu)
@@ -148,75 +114,88 @@ const DraggableNote = memo(({
     snippet.src ||
     (snippet.file_data ? `data:image/png;base64,${snippet.file_data}` : null);
 
-  // 📐 RESIZE LOGIC: Handles the small handle at the bottom-right corner.
-  const handleResizeMouseDown = (e) => {
+  // 📐 RESIZE LOGIC: pointer capture so pen never loses the handle mid-drag
+  const handleResizePointerDown = (e) => {
     e.stopPropagation();
     e.preventDefault();
 
-    // Support both mouse and touch start coords
-    const startX = e.clientX ?? e.touches?.[0]?.clientX;
-    const startY = e.clientY ?? e.touches?.[0]?.clientY;
-
-    // Use getBoundingClientRect for accurate start dimensions (handles 'auto' height correctly)
+    const startX = e.clientX;
+    const startY = e.clientY;
     const rect = noteRef.current.getBoundingClientRect();
     const startWidth = rect.width;
     const startHeight = rect.height;
 
+    const el = e.currentTarget;
+    el.setPointerCapture(e.pointerId);
+
     const doResize = (moveEvent) => {
-      moveEvent.preventDefault();
-      // Handle both mouse and touch events
-      const clientX = moveEvent.clientX ?? moveEvent.touches?.[0]?.clientX;
-      const clientY = moveEvent.clientY ?? moveEvent.touches?.[0]?.clientY;
-
-      if (clientX === undefined || clientY === undefined) return;
-
       const scale = getScale() || 1;
-      const newWidth = Math.max(50, startWidth + (clientX - startX)) / scale;
-      const newHeight = Math.max(50, startHeight + (clientY - startY)) / scale;
-
-      // Mode: "resize" - Tells App.js to update the width/height of the snippet.
-      onDrag?.(null, null, "resize", { id: snippet.id, width: newWidth, height: newHeight }); // updates App.js state
+      const newWidth = Math.max(50, startWidth + (moveEvent.clientX - startX)) / scale;
+      const newHeight = Math.max(50, startHeight + (moveEvent.clientY - startY)) / scale;
+      onDrag?.(null, null, "resize", { id: snippet.id, width: newWidth, height: newHeight });
     };
-
     const stopResize = () => {
-      window.removeEventListener("mousemove", doResize);
-      window.removeEventListener("mouseup", stopResize);
-      window.removeEventListener("touchmove", doResize);
-      window.removeEventListener("touchend", stopResize);
+      el.removeEventListener("pointermove", doResize);
+      el.removeEventListener("pointerup", stopResize);
+      el.removeEventListener("pointercancel", stopResize);
     };
-
-    window.addEventListener("mousemove", doResize);
-    window.addEventListener("mouseup", stopResize);
-    window.addEventListener("touchmove", doResize, { passive: false });
-    window.addEventListener("touchend", stopResize);
+    el.addEventListener("pointermove", doResize);
+    el.addEventListener("pointerup", stopResize);
+    el.addEventListener("pointercancel", stopResize);
   };
 
   // ✅ Hover state for better UX
-  const [isHovered, setIsHovered] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [tempText, setTempText] = useState(snippet.text || "");
+  const [showSizeMenu, setShowSizeMenu] = useState(false);
+  const editorRef = useRef(null);
+  const isEditingRef = useRef(false);
+  const tempTextRef = useRef(snippet.text || "");
 
   // Update tempText if snippet text changes from outside
   useEffect(() => {
     setTempText(snippet.text || "");
   }, [snippet.text]);
 
+  useEffect(() => {
+    tempTextRef.current = tempText;
+  }, [tempText]);
+
+  useEffect(() => {
+    isEditingRef.current = isEditing;
+  }, [isEditing]);
+
+  useEffect(() => {
+    if (editorRef.current && !isEditingRef.current) {
+      editorRef.current.innerHTML = toRichTextHtml(snippet.text || "");
+    }
+  }, [snippet.text]);
+
+  useEffect(() => {
+    if (isEditing && editorRef.current) {
+      editorRef.current.innerHTML = toRichTextHtml(tempTextRef.current || "");
+    }
+  }, [isEditing]);
+
   const handleSave = () => {
     setIsEditing(false);
-    if (tempText !== snippet.text) {
-      onDrag?.(null, null, "edit", { id: snippet.id, text: tempText });
+    setShowSizeMenu(false);
+    const nextText = editorRef.current?.innerHTML ?? tempText;
+    if (nextText !== snippet.text) {
+      setTempText(nextText);
+      onDrag?.(null, null, "edit", { id: snippet.id, text: nextText });
     }
   };
 
   const handleKeyDown = (e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSave();
-    }
     if (e.key === "Escape") {
+      const resetValue = toRichTextHtml(snippet.text || "");
+      if (editorRef.current) editorRef.current.innerHTML = resetValue;
       setTempText(snippet.text || "");
       setIsEditing(false);
+      setShowSizeMenu(false);
     }
+    e.stopPropagation();
   };
 
   return (
@@ -224,10 +203,7 @@ const DraggableNote = memo(({
       <div
         ref={noteRef}
         id={`workspace-item-${snippet.id}`}
-        onMouseDown={handleMouseDown}
-        onTouchStart={handleTouchStart}
-        onMouseEnter={() => setIsHovered(true)}
-        onMouseLeave={() => setIsHovered(false)}
+        onPointerDown={handlePointerDown}
         onClick={(e) => {
           e.stopPropagation();
           onClick?.(e);
@@ -237,18 +213,19 @@ const DraggableNote = memo(({
           e.stopPropagation();
           if (snippet.type === "text" || !snippet.type) {
             setIsEditing(true);
+            setTimeout(() => editorRef.current?.focus(), 50);
           }
         }}
         style={{
           position: "absolute",
           left: snippet.x,
           top: snippet.y,
-          background: multiSelected ? "#fff3cd" : (snippet.bg_color || (selected ? "#d0e7ff" : (isHovered ? "#f0f8ff" : "white"))),
+          background: multiSelected ? "#fff3cd" : (snippet.bg_color || (selected ? "#d0e7ff" : "white")),
           borderRadius: "10px",
           padding: "0.8rem",
           width: snippet.width || 180,
           height: snippet.height || "auto",
-          boxShadow: selected || isHovered ? "0 4px 12px rgba(0,0,0,0.2)" : "0 2px 6px rgba(0,0,0,0.15)",
+          boxShadow: selected ? "0 4px 12px rgba(0,0,0,0.2)" : "0 2px 6px rgba(0,0,0,0.15)",
           borderLeft: multiSelected
             ? "4px solid #fd7e14"
             : sourcePdfColor
@@ -257,7 +234,7 @@ const DraggableNote = memo(({
                   ? "4px solid #007bff"
                   : "4px solid #28a745"),
           cursor: disableDrag ? "default" : (isEditing ? "text" : "move"),
-          zIndex: selected || isHovered ? 20 : 10, // Bring to front on hover/select
+          zIndex: selected ? 20 : 10,
           userSelect: isEditing ? "text" : "none",
           touchAction: "none",
           paddingBottom: "20px", // Extra space for handle
@@ -270,33 +247,57 @@ const DraggableNote = memo(({
           flexDirection: "column"
         }}
       >
+        {isEditing && (snippet.type === "text" || !snippet.type) && (
+          <RichTextToolbar
+            editorRef={editorRef}
+            showSizeMenu={showSizeMenu}
+            setShowSizeMenu={setShowSizeMenu}
+          />
+        )}
+
         {isEditing ? (
-          <textarea
-            autoFocus
-            value={tempText}
-            onChange={(e) => setTempText(e.target.value)}
+          <div
+            ref={editorRef}
+            contentEditable
+            suppressContentEditableWarning
+            dir="auto"
+            onFocus={() => setIsEditing(true)}
             onBlur={handleSave}
+            onInput={(e) => setTempText(e.currentTarget.innerHTML)}
             onKeyDown={handleKeyDown}
+            onPointerDown={(e) => e.stopPropagation()}
             style={{
               width: "100%",
               height: "100%",
               border: "none",
               outline: "none",
               background: "transparent",
-              resize: "none",
-              fontFamily: "inherit",
-              fontSize: "inherit",
               color: "inherit",
               padding: 0,
               margin: 0,
               flexGrow: 1,
-              boxSizing: "border-box"
+              boxSizing: "border-box",
+              overflowY: "auto",
+              overflowX: "hidden",
+              wordBreak: "break-word",
+              whiteSpace: "pre-wrap",
+              lineHeight: 1.5,
+              cursor: "text",
             }}
           />
         ) : snippet.type === "text" || snippet.text || !snippet.type ? (
-          <p style={{ margin: 0, color: (snippet.text || tempText) ? "inherit" : "#aaa", fontStyle: (snippet.text || tempText) ? "normal" : "italic" }}>
-            {snippet.text || tempText || "Double-click to edit..."}
-          </p>
+          isRichTextEmpty(tempText) ? (
+            <p style={{ margin: 0, color: "#aaa", fontStyle: "italic" }}>
+              Double-click to edit...
+            </p>
+          ) : (
+            <div
+              className="workspace-rich-text"
+              dir="auto"
+              style={{ margin: 0, lineHeight: 1.5, wordBreak: "break-word" }}
+              dangerouslySetInnerHTML={{ __html: toRichTextHtml(tempText) }}
+            />
+          )
         ) : snippet.type === "image" && imgSrc ? (
           <img
             src={imgSrc}
@@ -313,7 +314,7 @@ const DraggableNote = memo(({
         )}
 
         {/* 📄 Source PDF badge — shown on hover when snippet came from a specific PDF */}
-        {sourcePdfColor && sourcePdfName && isHovered && (
+        {sourcePdfColor && sourcePdfName && selected && (
           <div
             style={{
               position: "absolute", bottom: 22, right: 4,
@@ -326,10 +327,10 @@ const DraggableNote = memo(({
         )}
 
         {/* ❌ Delete Button */}
-        {(selected || isHovered) && (
+        {selected && (
           <div
-            onMouseDown={e => e.stopPropagation()}
-            onClick={e => { e.stopPropagation(); onDrag?.(null, null, "delete", snippet.id); }}
+            onPointerDown={e => { e.stopPropagation(); e.preventDefault(); }}
+            onPointerUp={e => { e.stopPropagation(); onDrag?.(null, null, "delete", snippet.id); }}
             title="Delete"
             style={{
               position: "absolute",
@@ -359,7 +360,7 @@ const DraggableNote = memo(({
         {/* 🎨 Color Picker — shows when selected */}
         {selected && onColorChange && (
           <div
-            onMouseDown={e => e.stopPropagation()}
+            onPointerDown={e => e.stopPropagation()}
             style={{
               position: "absolute",
               bottom: -32,
@@ -393,10 +394,9 @@ const DraggableNote = memo(({
         )}
 
         {/* 📐 Resize Handle */}
-        {!disableDrag && (selected || isHovered) && (
+        {!disableDrag && selected && (
           <div
-            onMouseDown={handleResizeMouseDown}
-            onTouchStart={handleResizeMouseDown}
+            onPointerDown={handleResizePointerDown}
             style={{
               position: "absolute",
               bottom: 0,
@@ -414,10 +414,10 @@ const DraggableNote = memo(({
         )}
 
         {/* Wire drag handle — drag from here to connect to another note or PDF */}
-        {onStartWire && isHovered && (
+        {onStartWire && selected && (
           <div
             title="Drag to connect"
-            onMouseDown={(e) => {
+            onPointerDown={(e) => {
               e.stopPropagation();
               e.preventDefault();
               const rect = noteRef.current?.getBoundingClientRect();

@@ -33,8 +33,15 @@ const CrossPdfConnectionLayer = () => {
     const [dragPos, setDragPos]               = useState(null);
     const [dragFromScreen, setDragFromScreen] = useState(null);
     const [dropTarget, setDropTarget]         = useState(false);
+    // Tracks screen positions of ALL link endpoints for persistent inline indicators
+    const [allEndpointPositions, setAllEndpointPositions] = useState([]);
     const rafRef       = useRef(null);
     const markerHitRef = useRef(false);
+    const dragWireStateRef = useRef(dragWire);
+
+    useEffect(() => {
+        dragWireStateRef.current = dragWire;
+    }, [dragWire]);
 
     // ── Measure navbar + PDF panel rects ─────────────────────────────────────
     useEffect(() => {
@@ -106,16 +113,13 @@ const CrossPdfConnectionLayer = () => {
         return getRefForPdf(ep.pdfId)?.current?.getAnchorScreenPos?.(ep.pageNum, ep.xPct, ep.yPct) ?? null;
     }, [getRefForPdf]);
 
-    // ── RAF: track selected line position ─────────────────────────────────────
+    // ── RAF: track selected line + all endpoint positions ─────────────────────
     useEffect(() => {
-        if (!selectedId && !dragWire) {
-            if (rafRef.current) cancelAnimationFrame(rafRef.current);
-            setLinePos(null);
-            return;
-        }
         let running = true;
         const tick = () => {
             if (!running) return;
+
+            // Track selected link bezier line
             if (selectedId) {
                 const link = crossPdfLinks.find(l => l.id === selectedId);
                 if (link) {
@@ -123,8 +127,28 @@ const CrossPdfConnectionLayer = () => {
                     const to   = getScreenPos(link.to);
                     setLinePos(from && to ? { from, to } : null);
                 }
+            } else {
+                setLinePos(null);
             }
+
+            // Track drag wire origin
             if (dragWire) setDragFromScreen(getScreenPos(dragWire.from));
+
+            // Track ALL endpoint positions for persistent inline indicators
+            if (crossPdfLinks.length > 0) {
+                const pts = [];
+                crossPdfLinks.forEach(link => {
+                    const color = link.color || "#3b82f6";
+                    const fromPos = getScreenPos(link.from);
+                    const toPos   = getScreenPos(link.to);
+                    if (fromPos) pts.push({ ...fromPos, color, linkId: link.id, side: "from" });
+                    if (toPos)   pts.push({ ...toPos,   color, linkId: link.id, side: "to" });
+                });
+                setAllEndpointPositions(pts);
+            } else {
+                setAllEndpointPositions([]);
+            }
+
             rafRef.current = requestAnimationFrame(tick);
         };
         rafRef.current = requestAnimationFrame(tick);
@@ -134,9 +158,10 @@ const CrossPdfConnectionLayer = () => {
 
     // ── Drag wire handlers ────────────────────────────────────────────────────
     const findDropTarget = useCallback((sx, sy) => {
+        const currentDragWire = dragWireStateRef.current;
         for (const { ref, pdfId: id } of [{ ref: pdfRef, pdfId }, { ref: pdf2Ref, pdfId: panel2PdfId }]) {
             if (!ref?.current || !id) continue;
-            if (dragWire?.from?.pdfId && String(id) === String(dragWire.from.pdfId)) continue;
+            if (currentDragWire?.from?.pdfId && String(id) === String(currentDragWire.from.pdfId)) continue;
             const a = ref.current.getPageAnchorFromScreen?.(sx, sy);
             if (a) return { type: "pdf", pdfId: id, pageNum: a.pageNum, xPct: a.xPct, yPct: a.yPct, text: "" };
         }
@@ -145,18 +170,20 @@ const CrossPdfConnectionLayer = () => {
             const note = el.closest("[id^='workspace-item-']");
             if (note) {
                 const sid = note.id.replace("workspace-item-", "");
-                if (!dragWire?.from?.snippetId || String(sid) !== String(dragWire.from.snippetId))
+                if (!currentDragWire?.from?.snippetId || String(sid) !== String(currentDragWire.from.snippetId))
                     return { type: "snippet", snippetId: sid, pdfId: null };
             }
         }
         return null;
-    }, [dragWire, pdfRef, pdf2Ref, pdfId, panel2PdfId]);
+    }, [pdfRef, pdf2Ref, pdfId, panel2PdfId]);
 
     const upFiredRef = useRef(false);
+    const hasActiveDrag = !!dragWire;
     useEffect(() => {
-        if (!dragWire) { upFiredRef.current = false; return; }
+        if (!hasActiveDrag) { upFiredRef.current = false; return; }
         upFiredRef.current = false;
         const onMove = (e) => {
+            if (!dragWireStateRef.current) return;
             setDragPos({ x: e.clientX, y: e.clientY });
             moveDragWire(e.clientX, e.clientY);
             setDropTarget(!!findDropTarget(e.clientX, e.clientY));
@@ -164,10 +191,16 @@ const CrossPdfConnectionLayer = () => {
         const onUp = (e) => {
             if (upFiredRef.current) return;
             upFiredRef.current = true;
+            const currentDragWire = dragWireStateRef.current;
+            if (!currentDragWire) {
+                setDragPos(null);
+                setDropTarget(false);
+                return;
+            }
             const t = findDropTarget(e.clientX, e.clientY);
             if (t) {
                 if (t.type === "snippet") {
-                    const fid = dragWire.from?.snippetId, tid = t.snippetId;
+                    const fid = currentDragWire.from?.snippetId, tid = t.snippetId;
                     if (fid && tid && String(fid) !== String(tid)) {
                         setConnections?.(prev => [...prev, { id: `conn-${Date.now()}`, from: fid, to: tid }]);
                         setIsDirty?.(true); cancelDragWire();
@@ -180,7 +213,7 @@ const CrossPdfConnectionLayer = () => {
         window.addEventListener("mousemove", onMove);
         window.addEventListener("mouseup", onUp);
         return () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
-    }, [dragWire, findDropTarget, moveDragWire, completeDragWireLink, cancelDragWire, setConnections, setIsDirty]);
+    }, [hasActiveDrag, findDropTarget, moveDragWire, completeDragWireLink, cancelDragWire, setConnections, setIsDirty]);
 
     const makePath = (a, b) => {
         const dx = b.x - a.x;
@@ -206,12 +239,54 @@ const CrossPdfConnectionLayer = () => {
             {/* ── SVG overlay ── */}
             <svg
                 style={{
-                    position: "fixed", top: clipY, left: 0,
-                    width: "100vw", height: window.innerHeight - clipY,
-                    pointerEvents: "none", zIndex: 9000, overflow: "visible",
+                    position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh",
+                    pointerEvents: "none", zIndex: 9000, overflow: "hidden",
                 }}
             >
-                <g transform={`translate(0,${-clipY})`}>
+                <defs>
+                    <clipPath id="cross-pdf-clip">
+                        <rect x="0" y={clipY} width="100%" height="100%" />
+                    </clipPath>
+                </defs>
+                <g clipPath="url(#cross-pdf-clip)">
+
+                    {/* ── Persistent inline indicators at every linked text position ── */}
+                    {allEndpointPositions.map((pt, i) => {
+                        const isSel = pt.linkId === selectedId;
+                        return (
+                            <g key={`ep-${pt.linkId}-${pt.side}`}
+                                style={{ pointerEvents: "all", cursor: "pointer" }}
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    markerHitRef.current = true;
+                                    setSelectedId(isSel ? null : pt.linkId);
+                                    setPopup(isSel ? null : { x: pt.x, y: pt.y, linkId: pt.linkId });
+                                }}
+                                title="Cross-PDF connection — click to highlight"
+                            >
+                                {/* Pulsing ring when selected */}
+                                {isSel && (
+                                    <circle cx={pt.x} cy={pt.y} r={10}
+                                        fill="none" stroke={pt.color} strokeWidth={1.5}
+                                        opacity={0.4}
+                                        style={{ pointerEvents: "none" }}
+                                    />
+                                )}
+                                {/* Colored diamond indicator */}
+                                <rect
+                                    x={pt.x - 5} y={pt.y - 5}
+                                    width={10} height={10}
+                                    rx={2}
+                                    fill={pt.color}
+                                    opacity={isSel ? 1 : 0.75}
+                                    stroke="white"
+                                    strokeWidth={1.5}
+                                    transform={`rotate(45, ${pt.x}, ${pt.y})`}
+                                    style={{ pointerEvents: "none" }}
+                                />
+                            </g>
+                        );
+                    })}
 
                     {/* Selected connection line */}
                     {selectedId && linePos && (() => {
@@ -297,13 +372,6 @@ const CrossPdfConnectionLayer = () => {
                         );
                     })}
 
-                    {/* Pending hint */}
-                    {pendingCrossLink && !hasDrag && (
-                        <text x="50%" y={clipY + 30} textAnchor="middle" fontSize="12" fontWeight="600" fill="#10b981"
-                            style={{ pointerEvents: "none", userSelect: "none" }}>
-                            Select text in the other PDF and click "Link Here"
-                        </text>
-                    )}
 
                     {/* Drag rubber-band */}
                     {hasDrag && dragFromScreen && (() => {

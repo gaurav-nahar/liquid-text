@@ -1,9 +1,10 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, Component } from "react";
 import { useApp } from "./context/AppContext";
 import PDFViewer from "./components/pdf/PDFViewer";
 import Navbar from "./components/layout/Navbar";
 import PDFSelector from "./components/pdf/PDFSelector";
 import "./App.css";
+import "bootstrap-icons/font/bootstrap-icons.css";
 import Workspace from "./components/workspace/Workspace";
 import TraceLineLayer from "./components/workspace/TraceLineLayer";
 import KeyboardShortcuts from "./components/layout/KeyboardShortcuts";
@@ -13,15 +14,60 @@ import AnnotationsSidebar from "./components/layout/AnnotationsSidebar";
 import ScreenStickyNotes from "./components/layout/ScreenStickyNotes";
 import BookmarksSidebar from "./components/layout/BookmarksSidebar";
 import CrossPdfConnectionLayer from "./components/workspace/CrossPdfConnectionLayer";
+import DocumentationPanel from "./components/documentation/DocumentationPanel";
+import useDocumentationPages from "./hooks/useDocumentationPages";
+import { getCurrentTimestampName } from "./utils/defaultNames";
+
+class ErrorBoundary extends Component {
+    constructor(props) {
+        super(props);
+        this.state = { hasError: false, error: null };
+    }
+    static getDerivedStateFromError(error) {
+        return { hasError: true, error };
+    }
+    componentDidCatch(error, info) {
+        console.error("[ErrorBoundary]", error, info);
+    }
+    render() {
+        if (this.state.hasError) {
+            return (
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100vh", gap: 16, fontFamily: "sans-serif" }}>
+                    <h2 style={{ color: "#dc2626" }}>Something went wrong</h2>
+                    <p style={{ color: "#6b7280", fontSize: 14, maxWidth: 400, textAlign: "center" }}>
+                        {this.state.error?.message || "An unexpected error occurred."}
+                    </p>
+                    <button
+                        onClick={() => this.setState({ hasError: false, error: null })}
+                        style={{ padding: "8px 20px", background: "#2563eb", color: "white", border: "none", borderRadius: 8, cursor: "pointer", fontSize: 14 }}
+                    >
+                        Try Again
+                    </button>
+                </div>
+            );
+        }
+        return this.props.children;
+    }
+}
 
 /** Inline workspace-name input to avoid browser prompt() */
 function NewWorkspaceBtn({ onAdd }) {
     const [editing, setEditing] = useState(false);
     const [name, setName] = useState("");
+    const openEditor = () => {
+        setName(getCurrentTimestampName());
+        setEditing(true);
+    };
+
     if (editing) {
         return (
             <form
-                onSubmit={e => { e.preventDefault(); if (name.trim()) { onAdd(name.trim()); setName(""); setEditing(false); } }}
+                onSubmit={e => {
+                    e.preventDefault();
+                    onAdd(name.trim() || getCurrentTimestampName());
+                    setName("");
+                    setEditing(false);
+                }}
                 style={{ display: "inline-flex", gap: 4, alignItems: "center" }}
             >
                 <input
@@ -29,7 +75,7 @@ function NewWorkspaceBtn({ onAdd }) {
                     value={name}
                     onChange={e => setName(e.target.value)}
                     onBlur={() => { setEditing(false); setName(""); }}
-                    placeholder="Workspace name"
+                    placeholder={getCurrentTimestampName()}
                     style={{ fontSize: 12, padding: "2px 6px", borderRadius: 6, border: "1px solid #aaa", width: 120 }}
                 />
                 <button type="submit" style={{ fontSize: 12, padding: "2px 8px", borderRadius: 6, border: "none", background: "#007bff", color: "white", cursor: "pointer" }}>Add</button>
@@ -37,7 +83,7 @@ function NewWorkspaceBtn({ onAdd }) {
         );
     }
     return (
-        <button className="add-workspace-btn" onClick={() => setEditing(true)} title="Create New Workspace">+</button>
+        <button className="add-workspace-btn" onClick={openEditor} title="Create New Workspace">+</button>
     );
 }
 
@@ -169,29 +215,57 @@ export default function App() {
         switchPdfTab, closePdfTab,
         panel2TabId, panel2PdfId, panel2PdfUrl, panel2PdfName,
         openInPanel2, closePanel2,
+        isDirty,
     } = useApp();
+
+    // Warn user before closing tab if there are unsaved changes
+    useEffect(() => {
+        const handleBeforeUnload = (e) => {
+            if (isDirty) {
+                e.preventDefault();
+                e.returnValue = "You have unsaved changes. Are you sure you want to leave?";
+            }
+        };
+        window.addEventListener("beforeunload", handleBeforeUnload);
+        return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+    }, [isDirty]);
+    const [isDocumentationActive, setIsDocumentationActive] = useState(false);
+    const {
+        documents,
+        activeDocument,
+        activeDocumentId,
+        createDocumentPage,
+        selectDocument,
+        renameDocument,
+        deleteDocument,
+        updateDocumentContent,
+    } = useDocumentationPages(activeWorkspace?.id ?? null);
 
     const [showOpenModal, setShowOpenModal] = useState(false);
     const [pdf2PanelWidth, setPdf2PanelWidth] = useState(35); // right panel width %
     const [pdf2Zoom, setPdf2Zoom] = useState(1.0);            // right panel independent zoom
     const [isResizing2, setIsResizing2] = useState(false);
-    const resizer2Ref = useRef({ startX: 0, startWidth: 35 });
+    const resizer2Ref = useRef({ startX: 0, startWidth: 35, startZoom: 1.0 });
 
     const { handleMouseDownResizer, handleTouchStartResizer } = useLayoutResizer();
 
-    // Right-panel drag resizer (dragging leftward = wider panel 2)
+    // Right-panel drag resizer — also scales pdf2Zoom proportionally like the main resizer does for PDF1
     const handleMouseDownResizer2 = useCallback((e) => {
         setIsResizing2(true);
-        resizer2Ref.current = { startX: e.clientX, startWidth: pdf2PanelWidth };
-    }, [pdf2PanelWidth]);
+        resizer2Ref.current = { startX: e.clientX, startWidth: pdf2PanelWidth, startZoom: pdf2Zoom };
+    }, [pdf2PanelWidth, pdf2Zoom]);
 
     useEffect(() => {
         if (!isResizing2) return;
         const onMove = (e) => {
-            const delta = resizer2Ref.current.startX - e.clientX; // dragging left = bigger
+            const { startX, startWidth, startZoom } = resizer2Ref.current;
+            const delta = e.clientX - startX;
             const deltaPct = (delta / window.innerWidth) * 100;
-            const next = Math.min(60, Math.max(15, resizer2Ref.current.startWidth + deltaPct));
+            const next = Math.min(60, Math.max(15, startWidth + deltaPct));
             setPdf2PanelWidth(next);
+            // Scale zoom proportionally so PDF content fills the resized panel
+            const ratio = next / startWidth;
+            setPdf2Zoom(Math.min(3.0, Math.max(0.3, parseFloat((startZoom * ratio).toFixed(2)))));
         };
         const onUp = () => setIsResizing2(false);
         window.addEventListener("mousemove", onMove);
@@ -199,236 +273,270 @@ export default function App() {
         return () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
     }, [isResizing2]);
 
-    if (!selectedPDF && pdfTabs.length === 0) {
-        return <PDFSelector onSelect={handlePDFSelect} />;
-    }
-
-    return (
-        <div className="app-container">
-            <KeyboardShortcuts />
-            <Toast />
-            <AnnotationsSidebar />
-            <BookmarksSidebar />
-            <ScreenStickyNotes />
-            <TraceLineLayer />
-            <CrossPdfConnectionLayer />
-
-            {showOpenModal && (
-                <OpenPdfModal
-                    onSelect={handlePDFSelect}
-                    onClose={() => setShowOpenModal(false)}
-                />
-            )}
-
-            {loading && (
-                <div style={{
-                    position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
-                    backgroundColor: 'rgba(255, 255, 255, 0.5)',
-                    zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center'
-                }}>
-                    <div style={{ background: 'white', padding: '10px 20px', borderRadius: '8px', boxShadow: '0 2px 10px rgba(0,0,0,0.1)' }}>
-                        Loading...
-                    </div>
+    const renderWorkspaceView = () => {
+        if (!selectedPDF && pdfTabs.length === 0) {
+            return (
+                <div className="app-empty-state">
+                    <PDFSelector onSelect={handlePDFSelect} />
                 </div>
-            )}
-            <Navbar />
+            );
+        }
 
-            <div className="context-bar">
-                {/* ── PDF TABS ── */}
-                <div
-                    className="pdf-tabs-container"
-                    style={{ width: `${pdfPanelWidth}%` }}
-                >
-                    <span className="context-label" style={{ paddingLeft: '16px', flexShrink: 0 }}>Files:</span>
-                    <div className="workspace-tabs-scroll" style={{ paddingLeft: 0, gap: 2 }}>
-                        {pdfTabs.map(tab => (
-                            <div
-                                key={tab.tabId}
-                                className={`workspace-tab-item ${tab.tabId === activeTabId ? 'active' : ''}`}
-                                onClick={() => switchPdfTab(tab)}
-                                title={tab.name}
+        return (
+            <>
+                <KeyboardShortcuts />
+                <AnnotationsSidebar />
+                <BookmarksSidebar />
+                {!isDocumentationActive && <ScreenStickyNotes />}
+                {!isDocumentationActive && <TraceLineLayer />}
+                {!isDocumentationActive && <CrossPdfConnectionLayer />}
+
+                {showOpenModal && (
+                    <OpenPdfModal
+                        onSelect={handlePDFSelect}
+                        onClose={() => setShowOpenModal(false)}
+                    />
+                )}
+
+                {loading && (
+                    <div style={{
+                        position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+                        backgroundColor: 'rgba(255, 255, 255, 0.5)',
+                        zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center'
+                    }}>
+                        <div style={{ background: 'white', padding: '10px 20px', borderRadius: '8px', boxShadow: '0 2px 10px rgba(0,0,0,0.1)' }}>
+                            Loading...
+                        </div>
+                    </div>
+                )}
+                <Navbar />
+
+                <div className="context-bar">
+                    <div
+                        className="pdf-tabs-container"
+                        style={{ width: panel2PdfUrl ? `${pdfPanelWidth + pdf2PanelWidth}%` : `${pdfPanelWidth}%` }}
+                    >
+                        <span className="context-label" style={{ paddingLeft: '16px', flexShrink: 0 }}>Files:</span>
+                        <div className="workspace-tabs-scroll" style={{ paddingLeft: 0, gap: 2 }}>
+                            {pdfTabs.map(tab => (
+                                <div
+                                    key={tab.tabId}
+                                    className={`workspace-tab-item ${tab.tabId === activeTabId ? 'active' : ''}`}
+                                    onClick={() => switchPdfTab(tab)}
+                                    title={tab.name}
+                                    style={{
+                                        marginTop: 6,
+                                        display: "flex", alignItems: "center", gap: 5,
+                                        paddingRight: 6,
+                                        maxWidth: 180,
+                                        cursor: "pointer",
+                                        background: tab.tabId === activeTabId ? "#e8f4ff" : "transparent",
+                                        borderRadius: 6,
+                                    }}
+                                >
+                                    <div style={{
+                                        width: 8, height: 8, borderRadius: "50%", flexShrink: 0,
+                                        background: tab.color || "#9ca3af",
+                                        boxShadow: tab.tabId === activeTabId ? `0 0 0 2px ${tab.color || "#9ca3af"}44` : "none",
+                                    }} />
+                                    <span className="tab-name" style={{
+                                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                                        fontWeight: tab.tabId === activeTabId ? 600 : 400,
+                                        color: tab.tabId === activeTabId ? (tab.color || "#0057c8") : "#374151",
+                                        fontSize: 12,
+                                    }}>{tab.name}</span>
+                                    {pdfTabs.length > 1 && (
+                                        <button
+                                            onClick={e => {
+                                                e.stopPropagation();
+                                                if (panel2TabId === tab.tabId) { closePanel2(); }
+                                                else { openInPanel2(tab); }
+                                            }}
+                                            title={panel2TabId === tab.tabId ? "Close right panel" : "Open in right panel (side-by-side)"}
+                                            style={{
+                                                border: "none", background: "none", cursor: "pointer",
+                                                color: panel2TabId === tab.tabId ? (tab.color || "#007bff") : "#9ca3af",
+                                                fontSize: 11, lineHeight: 1, padding: "0 2px", flexShrink: 0,
+                                                fontWeight: 700,
+                                            }}
+                                            onMouseEnter={e => e.currentTarget.style.color = tab.color || "#007bff"}
+                                            onMouseLeave={e => e.currentTarget.style.color = panel2TabId === tab.tabId ? (tab.color || "#007bff") : "#9ca3af"}
+                                        >⊞</button>
+                                    )}
+                                    {pdfTabs.length > 1 && (
+                                        <button
+                                            onClick={e => { e.stopPropagation(); closePdfTab(tab.tabId); }}
+                                            title="Close this PDF"
+                                            style={{
+                                                border: "none", background: "none", cursor: "pointer",
+                                                color: "#9ca3af", fontSize: 14, lineHeight: 1,
+                                                padding: "0 2px", flexShrink: 0,
+                                            }}
+                                            onMouseEnter={e => e.currentTarget.style.color = "#ef4444"}
+                                            onMouseLeave={e => e.currentTarget.style.color = "#9ca3af"}
+                                        >×</button>
+                                    )}
+                                </div>
+                            ))}
+                            <button
+                                onClick={() => setShowOpenModal(true)}
+                                title="Open PDF in new tab"
                                 style={{
-                                    marginTop: 6,
-                                    display: "flex", alignItems: "center", gap: 5,
-                                    paddingRight: 6,
-                                    maxWidth: 180,
-                                    cursor: "pointer",
-                                    background: tab.tabId === activeTabId ? "#e8f4ff" : "transparent",
-                                    borderRadius: 6,
+                                    marginTop: 6, height: 28, width: 28, border: "1px dashed #d1d5db",
+                                    borderRadius: 6, background: "transparent", cursor: "pointer",
+                                    color: "#9ca3af", fontSize: 18, display: "flex",
+                                    alignItems: "center", justifyContent: "center", flexShrink: 0,
                                 }}
-                            >
-                                {/* Color dot = source PDF identity */}
-                                <div style={{
-                                    width: 8, height: 8, borderRadius: "50%", flexShrink: 0,
-                                    background: tab.color || "#9ca3af",
-                                    boxShadow: tab.tabId === activeTabId ? `0 0 0 2px ${tab.color || "#9ca3af"}44` : "none",
-                                }} />
-                                <span className="tab-name" style={{
-                                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                                    fontWeight: tab.tabId === activeTabId ? 600 : 400,
-                                    color: tab.tabId === activeTabId ? (tab.color || "#0057c8") : "#374151",
-                                    fontSize: 12,
-                                }}>{tab.name}</span>
-                                {/* Open in right panel button — only when 2+ PDFs */}
-                                {pdfTabs.length > 1 && (
-                                    <button
-                                        onClick={e => {
-                                            e.stopPropagation();
-                                            if (panel2TabId === tab.tabId) { closePanel2(); }
-                                            else { openInPanel2(tab); }
-                                        }}
-                                        title={panel2TabId === tab.tabId ? "Close right panel" : "Open in right panel (side-by-side)"}
-                                        style={{
-                                            border: "none", background: "none", cursor: "pointer",
-                                            color: panel2TabId === tab.tabId ? (tab.color || "#007bff") : "#9ca3af",
-                                            fontSize: 11, lineHeight: 1, padding: "0 2px", flexShrink: 0,
-                                            fontWeight: 700,
-                                        }}
-                                        onMouseEnter={e => e.currentTarget.style.color = tab.color || "#007bff"}
-                                        onMouseLeave={e => e.currentTarget.style.color = panel2TabId === tab.tabId ? (tab.color || "#007bff") : "#9ca3af"}
-                                    >⊞</button>
-                                )}
-                                {pdfTabs.length > 1 && (
-                                    <button
-                                        onClick={e => { e.stopPropagation(); closePdfTab(tab.tabId); }}
-                                        title="Close this PDF"
-                                        style={{
-                                            border: "none", background: "none", cursor: "pointer",
-                                            color: "#9ca3af", fontSize: 14, lineHeight: 1,
-                                            padding: "0 2px", flexShrink: 0,
-                                        }}
-                                        onMouseEnter={e => e.currentTarget.style.color = "#ef4444"}
-                                        onMouseLeave={e => e.currentTarget.style.color = "#9ca3af"}
-                                    >×</button>
-                                )}
-                            </div>
-                        ))}
-                        {/* Open new PDF tab button */}
-                        <button
-                            onClick={() => setShowOpenModal(true)}
-                            title="Open PDF in new tab"
-                            style={{
-                                marginTop: 6, height: 28, width: 28, border: "1px dashed #d1d5db",
-                                borderRadius: 6, background: "transparent", cursor: "pointer",
-                                color: "#9ca3af", fontSize: 18, display: "flex",
-                                alignItems: "center", justifyContent: "center", flexShrink: 0,
-                            }}
-                            onMouseEnter={e => { e.currentTarget.style.borderColor = "#007bff"; e.currentTarget.style.color = "#007bff"; }}
-                            onMouseLeave={e => { e.currentTarget.style.borderColor = "#d1d5db"; e.currentTarget.style.color = "#9ca3af"; }}
-                        >+</button>
+                                onMouseEnter={e => { e.currentTarget.style.borderColor = "#007bff"; e.currentTarget.style.color = "#007bff"; }}
+                                onMouseLeave={e => { e.currentTarget.style.borderColor = "#d1d5db"; e.currentTarget.style.color = "#9ca3af"; }}
+                            >+</button>
+                        </div>
                     </div>
-                </div>
 
-                {/* ── WORKSPACE TABS ── */}
-                <div className="workspace-tabs-container">
-                    <span className="context-label">Workspaces:</span>
-                    <div className="workspace-tabs-scroll">
-                        {workspaces.map(ws => (
+                    <div className="workspace-tabs-container">
+                        <span className="context-label">Workspaces:</span>
+                        <div className="workspace-tabs-scroll">
+                            {workspaces.map(ws => (
+                                <div
+                                    key={ws.id}
+                                    className={`context-tab workspace-tab-item ${!isDocumentationActive && activeWorkspace?.id === ws.id ? 'active' : ''}`}
+                                    onClick={() => {
+                                        setIsDocumentationActive(false);
+                                        setActiveWorkspace(ws);
+                                    }}
+                                    title={ws.name}
+                                >
+                                    {!isDocumentationActive && activeWorkspace?.id === ws.id && (
+                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '6px' }}>
+                                            <polyline points="20 6 9 17 4 12" />
+                                        </svg>
+                                    )}
+                                    <span className="tab-name">{ws.name}</span>
+                                </div>
+                            ))}
                             <div
-                                key={ws.id}
-                                className={`context-tab workspace-tab-item ${activeWorkspace?.id === ws.id ? 'active' : ''}`}
-                                onClick={() => setActiveWorkspace(ws)}
-                                title={ws.name}
+                                className={`context-tab workspace-tab-item ${isDocumentationActive ? 'active' : ''}`}
+                                onClick={() => setIsDocumentationActive(true)}
+                                title="Documentation"
                             >
-                                {activeWorkspace?.id === ws.id && (
+                                {isDocumentationActive && (
                                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '6px' }}>
                                         <polyline points="20 6 9 17 4 12" />
                                     </svg>
                                 )}
-                                <span className="tab-name">{ws.name}</span>
+                                <span className="tab-name">Documentation</span>
+                                <span className="workspace-tab-count">{documents.length}</span>
                             </div>
-                        ))}
-                        <NewWorkspaceBtn onAdd={handleAddWorkspace} />
+                            <NewWorkspaceBtn onAdd={handleAddWorkspace} />
+                        </div>
                     </div>
                 </div>
-            </div>
 
-            <div className="main-content" style={{ cursor: isResizing || isResizing2 ? 'col-resize' : 'default' }}>
-                {/* ── Left PDF panel ── */}
-                <div className="pdf-view-container" style={{ width: `${pdfPanelWidth}%`, height: '100%', flex: 'none', position: 'relative' }}>
-                    <PDFViewer key={activeTabId} ref={pdfRef} fileUrl={selectedPDF} sourcePdfId={pdfId} />
-                </div>
+                <div className="main-content" style={{ cursor: isResizing || isResizing2 ? 'col-resize' : 'default' }}>
+                    {/* PDF 1 — always left */}
+                    <div className="pdf-view-container" style={{ width: `${pdfPanelWidth}%`, height: '100%', flex: 'none', position: 'relative' }}>
+                        <PDFViewer key={activeTabId} ref={pdfRef} fileUrl={selectedPDF} sourcePdfId={pdfId} />
+                    </div>
 
-                <div
-                    className={`layout-resizer ${isResizing ? 'active' : ''}`}
-                    onMouseDown={handleMouseDownResizer}
-                    onTouchStart={handleTouchStartResizer}
-                >
-                    <div className="resizer-handle"><span>⋮</span></div>
-                </div>
+                    <div
+                        className={`layout-resizer ${isResizing ? 'active' : ''}`}
+                        onMouseDown={handleMouseDownResizer}
+                        onTouchStart={handleTouchStartResizer}
+                    >
+                        <div className="resizer-handle"><span>⋮</span></div>
+                    </div>
 
-                {/* ── Workspace (middle) ── */}
-                <div className="workspace-view-wrapper" style={{ flex: 1, minWidth: 0, position: 'relative' }}>
-                    <Workspace />
-                </div>
-
-                {/* ── Right PDF panel (side-by-side) ── */}
-                {panel2PdfUrl && (
-                    <>
-                        {/* Drag resizer between workspace and right panel */}
-                        <div
-                            style={{
-                                width: 6, height: '100%', cursor: 'col-resize', flexShrink: 0,
-                                background: isResizing2 ? '#93c5fd' : '#e5e7eb',
-                                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                transition: 'background 0.15s',
-                            }}
-                            onMouseDown={handleMouseDownResizer2}
-                            onMouseEnter={e => e.currentTarget.style.background = '#93c5fd'}
-                            onMouseLeave={e => { if (!isResizing2) e.currentTarget.style.background = '#e5e7eb'; }}
-                        >
-                            <span style={{ fontSize: 10, color: '#9ca3af', userSelect: 'none' }}>⋮</span>
-                        </div>
-
-                        {/* Right panel */}
-                        <div style={{
-                            width: `${pdf2PanelWidth}%`, height: '100%', flex: 'none',
-                            position: 'relative', display: 'flex', flexDirection: 'column',
-                            borderLeft: `3px solid ${pdfTabs.find(t => t.tabId === panel2TabId)?.color || '#e5e7eb'}`,
-                        }}>
-                            {/* Right panel header with independent zoom */}
+                    {/* PDF 2 — middle when open, placed before workspace */}
+                    {panel2PdfUrl && (
+                        <>
                             <div style={{
-                                height: 32, flexShrink: 0, display: 'flex', alignItems: 'center',
-                                padding: '0 8px', gap: 4,
-                                background: '#f8fafc', borderBottom: '1px solid #e5e7eb',
+                                width: `${pdf2PanelWidth}%`, height: '100%', flex: 'none',
+                                position: 'relative', display: 'flex', flexDirection: 'column',
+                                borderLeft: `3px solid ${pdfTabs.find(t => t.tabId === panel2TabId)?.color || '#e5e7eb'}`,
+                                borderRight: `3px solid ${pdfTabs.find(t => t.tabId === panel2TabId)?.color || '#e5e7eb'}`,
                             }}>
                                 <div style={{
-                                    width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
-                                    background: pdfTabs.find(t => t.tabId === panel2TabId)?.color || '#9ca3af',
-                                }} />
-                                <span style={{
-                                    flex: 1, fontSize: 11, fontWeight: 600, color: '#374151',
-                                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                                }}>{panel2PdfName}</span>
-                                {/* Independent zoom controls */}
-                                <button onClick={() => setPdf2Zoom(z => Math.max(0.3, parseFloat((z - 0.15).toFixed(2))))}
-                                    title="Zoom out" style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 14, fontWeight: 700, color: '#6b7280', padding: '0 3px', lineHeight: 1 }}>−</button>
-                                <span style={{ fontSize: 10, fontWeight: 600, color: '#6b7280', minWidth: 30, textAlign: 'center' }}>{Math.round(pdf2Zoom * 100)}%</span>
-                                <button onClick={() => setPdf2Zoom(z => Math.min(3.0, parseFloat((z + 0.15).toFixed(2))))}
-                                    title="Zoom in" style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 14, fontWeight: 700, color: '#6b7280', padding: '0 3px', lineHeight: 1 }}>+</button>
-                                <button
-                                    onClick={closePanel2}
-                                    title="Close right panel"
-                                    style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#9ca3af', fontSize: 16, lineHeight: 1, padding: '0 2px', marginLeft: 2 }}
-                                    onMouseEnter={e => e.currentTarget.style.color = '#ef4444'}
-                                    onMouseLeave={e => e.currentTarget.style.color = '#9ca3af'}
-                                >×</button>
+                                    height: 32, flexShrink: 0, display: 'flex', alignItems: 'center',
+                                    padding: '0 8px', gap: 4,
+                                    background: '#f8fafc', borderBottom: '1px solid #e5e7eb',
+                                }}>
+                                    <div style={{
+                                        width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
+                                        background: pdfTabs.find(t => t.tabId === panel2TabId)?.color || '#9ca3af',
+                                    }} />
+                                    <span style={{
+                                        flex: 1, fontSize: 11, fontWeight: 600, color: '#374151',
+                                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                                    }}>{panel2PdfName}</span>
+                                    <button onClick={() => setPdf2Zoom(z => Math.max(0.3, parseFloat((z - 0.15).toFixed(2))))}
+                                        title="Zoom out" style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 14, fontWeight: 700, color: '#6b7280', padding: '0 3px', lineHeight: 1 }}>−</button>
+                                    <span style={{ fontSize: 10, fontWeight: 600, color: '#6b7280', minWidth: 30, textAlign: 'center' }}>{Math.round(pdf2Zoom * 100)}%</span>
+                                    <button onClick={() => setPdf2Zoom(z => Math.min(3.0, parseFloat((z + 0.15).toFixed(2))))}
+                                        title="Zoom in" style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: 14, fontWeight: 700, color: '#6b7280', padding: '0 3px', lineHeight: 1 }}>+</button>
+                                    <button
+                                        onClick={closePanel2}
+                                        title="Close PDF 2 panel"
+                                        style={{ border: 'none', background: 'none', cursor: 'pointer', color: '#9ca3af', fontSize: 16, lineHeight: 1, padding: '0 2px', marginLeft: 2 }}
+                                        onMouseEnter={e => e.currentTarget.style.color = '#ef4444'}
+                                        onMouseLeave={e => e.currentTarget.style.color = '#9ca3af'}
+                                    >×</button>
+                                </div>
+
+                                <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
+                                    <PDFViewer
+                                        key={panel2TabId}
+                                        ref={pdf2Ref}
+                                        fileUrl={panel2PdfUrl}
+                                        sourcePdfId={panel2PdfId}
+                                        localZoom={pdf2Zoom}
+                                    />
+                                </div>
                             </div>
 
-                            {/* Right panel PDF viewer — independent zoom via localZoom prop */}
-                            <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
-                                <PDFViewer
-                                    key={panel2TabId}
-                                    ref={pdf2Ref}
-                                    fileUrl={panel2PdfUrl}
-                                    sourcePdfId={panel2PdfId}
-                                    localZoom={pdf2Zoom}
-                                />
+                            <div
+                                style={{
+                                    width: 6, height: '100%', cursor: 'col-resize', flexShrink: 0,
+                                    background: isResizing2 ? '#93c5fd' : '#e5e7eb',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    transition: 'background 0.15s',
+                                }}
+                                onMouseDown={handleMouseDownResizer2}
+                                onMouseEnter={e => e.currentTarget.style.background = '#93c5fd'}
+                                onMouseLeave={e => { if (!isResizing2) e.currentTarget.style.background = '#e5e7eb'; }}
+                            >
+                                <span style={{ fontSize: 10, color: '#9ca3af', userSelect: 'none' }}>⋮</span>
                             </div>
-                        </div>
-                    </>
-                )}
+                        </>
+                    )}
+
+                    {/* Workspace — always rightmost */}
+                    <div className="workspace-view-wrapper" style={{ flex: 1, minWidth: 0, position: 'relative' }}>
+                        {isDocumentationActive ? (
+                            <DocumentationPanel
+                                documents={documents}
+                                activeDocument={activeDocument}
+                                activeDocumentId={activeDocumentId}
+                                onSelectDocument={selectDocument}
+                                onCreateDocument={createDocumentPage}
+                                onRenameDocument={renameDocument}
+                                onDeleteDocument={deleteDocument}
+                                onUpdateDocumentContent={updateDocumentContent}
+                            />
+                        ) : (
+                            <Workspace />
+                        )}
+                    </div>
+                </div>
+            </>
+        );
+    };
+
+    return (
+        <ErrorBoundary>
+            <div className="app-container">
+                <Toast />
+                {renderWorkspaceView()}
             </div>
-        </div>
+        </ErrorBoundary>
     );
 }

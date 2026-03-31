@@ -10,4 +10,4 @@ COPY . .
 # 5. FastAPI kis port pe chalega
 EXPOSE 8000
 # 6. Command run karne ke liye
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["gunicorn", "main:app", "--workers", "4", "--worker-class", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:8000", "--timeout", "120", "--keep-alive", "5"]

@@ -1,8 +1,15 @@
+import logging
 from fastapi import APIRouter, Depends, Request, UploadFile, HTTPException, Header
 from sqlalchemy.orm import Session
 from typing import Optional
 import json
 import math
+from src.cache.cache import (
+    cache_get, cache_set, cache_delete,
+    key_cross_pdf_links, key_workspace_groups
+)
+
+logger = logging.getLogger(__name__)
 # Repository Imports
 from src.repo.workspace_repo import WorkspaceRepo
 from src.repo.snippet_repo import SnippetRepo
@@ -70,7 +77,7 @@ async def create_workspace(pdf_id: int, name: str, db: Session = Depends(get_db)
 
 @router.post("/save/{pdf_id}/{workspace_id}")
 async def save_workspace(pdf_id: int, workspace_id: int, request: Request, db: Session = Depends(get_db), x_user_id: Optional[str] = Header(None)):
-    print(f"[DEBUG] save_workspace: pdf_id={pdf_id}, workspace_id={workspace_id}, x_user_id={x_user_id}")
+    logger.debug(f"save_workspace: pdf_id={pdf_id}, workspace_id={workspace_id}, user={x_user_id}")
     # Verify workspace belongs to user
     ws = db.query(Workspace).filter(Workspace.id == workspace_id).first()
     if not ws:
@@ -78,12 +85,12 @@ async def save_workspace(pdf_id: int, workspace_id: int, request: Request, db: S
 
     if x_user_id:
         if ws.user_id != x_user_id and ws.user_id != 'legacy_user':
-            print(f"[ERROR] Authorization mismatch: workspace.user_id={ws.user_id}, x_user_id={x_user_id}")
+            logger.warning(f"Auth mismatch: workspace.user_id={ws.user_id}, x_user_id={x_user_id}")
             raise HTTPException(status_code=403, detail=f"Not authorized to access this workspace (Owned by {ws.user_id})")
         
         # If it was legacy, claim it or just proceed
         if ws.user_id == 'legacy_user':
-            print(f"[INFO] User {x_user_id} is claiming/accessing legacy workspace {workspace_id}")
+            logger.info(f"User {x_user_id} accessing legacy workspace {workspace_id}")
 
     form = await request.form()
     
@@ -338,27 +345,44 @@ async def save_workspace(pdf_id: int, workspace_id: int, request: Request, db: S
     ws.cross_pdf_links_json = json.dumps(normalized_cross_links)
 
     db.commit()
-    print(f"[SUCCESS] Workspace {workspace_id} saved for user {x_user_id}")
+    logger.info(f"Workspace {workspace_id} saved for user {x_user_id}")
+    # Invalidate caches for this workspace
+    cache_delete(key_cross_pdf_links(workspace_id))
+    cache_delete(key_workspace_groups(workspace_id))
 
     return {"message": "Workspace saved successfully", "id_map": id_map}
 
 
 @router.get("/cross_pdf_links/{workspace_id}")
-def get_cross_pdf_links(workspace_id: int, db: Session = Depends(get_db)):
+def get_cross_pdf_links(workspace_id: int, db: Session = Depends(get_db), x_user_id: Optional[str] = Header(None)):
+    cache_key = key_cross_pdf_links(workspace_id)
+    cached = cache_get(cache_key)
+    if cached is not None:
+        return cached
+
     ws = db.query(Workspace).filter(Workspace.id == workspace_id).first()
     if not ws:
         return []
+    if x_user_id and ws.user_id != x_user_id and ws.user_id != 'legacy_user':
+        raise HTTPException(status_code=403, detail="Not authorized to access this workspace")
     raw = ws.cross_pdf_links_json or "[]"
     try:
-        return json.loads(raw)
+        result = json.loads(raw)
+        cache_set(cache_key, result)
+        return result
     except Exception:
         return []
 
 
 @router.get("/groups/{workspace_id}")
 def get_workspace_groups(workspace_id: int, db: Session = Depends(get_db)):
+    cache_key = key_workspace_groups(workspace_id)
+    cached = cache_get(cache_key)
+    if cached is not None:
+        return cached
+
     groups = db.query(WorkspaceGroup).filter(WorkspaceGroup.workspace_id == workspace_id).all()
-    return [
+    result = [
         {
             "id": g.id,
             "client_id": g.client_id,
@@ -369,3 +393,5 @@ def get_workspace_groups(workspace_id: int, db: Session = Depends(get_db)):
         }
         for g in groups
     ]
+    cache_set(cache_key, result)
+    return result

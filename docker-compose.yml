@@ -6,23 +6,36 @@ services:
     container_name: my-postgres
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: Abhi@3105
+      POSTGRES_PASSWORD: 123456GN
       POSTGRES_DB: liquidtext
     ports:
       - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    ports:
+      - "6379:6379"
 
   backend:
     build: ./backend
     container_name: backend
     depends_on:
       - db
+      - redis
     ports:
-      - "8005:8005"
+      - "8005:8000"
     env_file:
       - ./backend/.env
     environment:
-      DATABASE_URL: "postgresql://postgres:Abhi%403105@db:5432/liquidtext"
-    command: sh -c "sleep 10 && uvicorn main:app --host 0.0.0.0 --port 8000"
+      DATABASE_URL: "postgresql://postgres:123456GN@db:5432/liquidtext"
+      REDIS_URL: "redis://redis:6379/0"
+      SUMMARY_SERVICE_URL: "http://host.docker.internal:8010/summarize"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command: sh -c "sleep 10 && gunicorn main:app --workers 4 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000 --timeout 120 --keep-alive 5"
     
 
   frontend:
@@ -31,4 +44,7 @@ services:
     depends_on:
       - backend
     ports:
-      - "3001:3001"
+      - "3001:3000"
+
+volumes:
+  postgres_data:

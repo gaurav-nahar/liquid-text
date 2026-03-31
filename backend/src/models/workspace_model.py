@@ -19,3 +19,4 @@ class Workspace(Base):
     boxes = relationship("Box", back_populates="workspace", cascade="all, delete-orphan")
     lines = relationship("Line", back_populates="workspace", cascade="all, delete-orphan")
     connections = relationship("Connection", back_populates="workspace", cascade="all, delete-orphan")
+    documentation_pages = relationship("DocumentationPage", back_populates="workspace", cascade="all, delete-orphan")

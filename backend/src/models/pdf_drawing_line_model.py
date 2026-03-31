@@ -7,7 +7,7 @@ class PdfDrawingLine(Base):
     __tablename__ = "pdf_drawing_lines"
 
     id = Column(Integer, primary_key=True, index=True)
-    pdf_id = Column(Integer, ForeignKey("pdf_files.id", ondelete="CASCADE"), nullable=False)
+    pdf_id = Column(Integer, ForeignKey("pdf_files.id", ondelete="CASCADE"), nullable=False, index=True)
     user_id = Column(String, index=True, nullable=False) # Mandatory for user isolation
     page_num = Column(Integer, nullable=False)
     _points = Column("points", Text, nullable=False)

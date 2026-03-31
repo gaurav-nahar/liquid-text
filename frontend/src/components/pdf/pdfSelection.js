@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { handleImageSelection } from "./pdfImageSelection";
 import { handleTextDragStart } from "./pdfDragHandlers";
+import { getPdfSelectionDetails } from "./pdfSelectionUtils";
 
 /**
  * Custom hook for PDF selection functionality (text and image)
@@ -49,49 +50,41 @@ export const useSelection = (containerRef, mode, contentRef = null, zoomLevel = 
         }
 
         const selection = window.getSelection();
-        const selectedText = selection?.toString().trim() || "";
+        const selectionDetails = getPdfSelectionDetails(selection, containerRef, contentRef);
+        const selectedText = selectionDetails?.selectedText || "";
 
         // Text selection handling
         if (selectedText.length > 0) {
             try {
-                const range = selection.getRangeAt(0);
-                const rect = range.getBoundingClientRect();
-                let pageNum = null;
-
-                // Robust page detection: Find the page wrapper containing the selection nodes
-                const anchorWrapper = selection.anchorNode?.parentElement?.closest('.pdf-page-wrapper');
-                const focusWrapper = selection.focusNode?.parentElement?.closest('.pdf-page-wrapper');
-                const targetWrapper = anchorWrapper || focusWrapper;
-
-                const contentContainer = contentRef ? contentRef.current : containerRef.current;
-
-                if (targetWrapper) {
-                    pageNum = parseInt(targetWrapper.dataset.pageNumber, 10);
-                } else {
-                    // Fallback to coordinates with tolerance if node detection fails
-                    const wrappers = Array.from(contentContainer.children);
-                    wrappers.forEach((wrapper) => {
-                        const wRect = wrapper.getBoundingClientRect();
-                        // Add tolerance for rounding errors or small overflows
-                        if (rect.top >= wRect.top - 10 && rect.bottom <= wRect.bottom + 10) {
-                            pageNum = parseInt(wrapper.dataset.pageNumber, 10);
-                        }
-                    });
-                }
-
-                if (pageNum) {
-                    const pageWrapper = contentContainer.children[pageNum - 1];
-                    const canvas = pageWrapper.querySelector("canvas");
-                    const canvasRect = canvas.getBoundingClientRect();
+                const { rect, pageNum, canvas, canvasRect } = selectionDetails || {};
+                if (pageNum && canvas && canvasRect) {
 
                     // Anchor position as fraction of the canvas page (for cross-PDF connection lines)
                     const anchorXPct = canvasRect.width  > 0 ? Math.max(0, Math.min(1, (rect.left + rect.width  / 2 - canvasRect.left) / canvasRect.width))  : 0.5;
                     const anchorYPct = canvasRect.height > 0 ? Math.max(0, Math.min(1, (rect.top  + rect.height / 2 - canvasRect.top)  / canvasRect.height)) : 0.5;
 
+                    const containerRect = containerRef.current.getBoundingClientRect();
+                    const containerW = containerRef.current.clientWidth;
+
+                    // Estimated popup dimensions for boundary clamping
+                    const POPUP_W = 360;
+                    const POPUP_H = 38;
+                    const GAP = 10;
+
+                    const rawX = (rect.left + rect.width / 2) - containerRect.left;
+
+                    // Clamp x so the popup (centered at x) stays within the container
+                    const clampedX = Math.max(POPUP_W / 2 + GAP, Math.min(containerW - POPUP_W / 2 - GAP, rawX));
+
+                    // Prefer above selection; fall back to below if too close to top
+                    const yAbove = rect.top - containerRect.top - POPUP_H - GAP;
+                    const yBelow = rect.bottom - containerRect.top + GAP;
+                    const finalY = yAbove >= GAP ? yAbove : yBelow;
+
                     setPopupData({
                         position: {
-                            x: (rect.left + rect.width / 2) - containerRef.current.getBoundingClientRect().left,
-                            y: rect.top - containerRef.current.getBoundingClientRect().top - 80
+                            x: clampedX,
+                            y: finalY,
                         },
                         selectedText,
                         pageNum,
@@ -100,19 +93,17 @@ export const useSelection = (containerRef, mode, contentRef = null, zoomLevel = 
                     });
 
                     // Store selection data for later usage
-                    if (canvas) {
-                        const selData = {
-                            pageNum,
-                            text: selectedText,
-                            xPct: (rect.left - canvasRect.left) / canvasRect.width,
-                            yPct: (rect.top - canvasRect.top) / canvasRect.height,
-                            widthPct: rect.width / canvasRect.width,
-                            heightPct: rect.height / canvasRect.height,
-                            fromPDF: true,
-                            type: "anchor",
-                        };
-                        containerRef.current._lastSelection = selData;
-                    }
+                    const selData = {
+                        pageNum,
+                        text: selectedText,
+                        xPct: (rect.left - canvasRect.left) / canvasRect.width,
+                        yPct: (rect.top - canvasRect.top) / canvasRect.height,
+                        widthPct: rect.width / canvasRect.width,
+                        heightPct: rect.height / canvasRect.height,
+                        fromPDF: true,
+                        type: "anchor",
+                    };
+                    containerRef.current._lastSelection = selData;
                 }
                 return;
             } catch (err) {
@@ -135,7 +126,7 @@ export const useSelection = (containerRef, mode, contentRef = null, zoomLevel = 
         }
 
         clearSelectionBox();
-    }, [mode, selectionBox, isDragging, clearSelectionBox, containerRef]);
+    }, [mode, selectionBox, isDragging, clearSelectionBox, containerRef, contentRef, zoomLevel, sourcePdfId]);
 
     // Refs to track drag state and timing (persisting across renders)
     const longPressTimerRef = useRef(null);
@@ -143,6 +134,7 @@ export const useSelection = (containerRef, mode, contentRef = null, zoomLevel = 
     const touchStartCoordsRef = useRef(null);
     const isTouchEventRef = useRef(false); // 🔒 Lock to prevent mouse handlers during touch
     const pendingMouseStartRef = useRef(null); // Pending mouse-down pos — box only created after drag threshold
+    const penTextDragRef = useRef(null); // Tracks pen drag of existing text selection
 
     // Setup event listeners for selection
     useEffect(() => {
@@ -339,21 +331,153 @@ export const useSelection = (containerRef, mode, contentRef = null, zoomLevel = 
                 if (box) box.classList.remove("current-selection-box");
                 handleMouseUp();
             } else {
-                // Check if user was doing native text selection
-                const selection = window.getSelection();
-                if (selection && selection.toString().trim().length > 0) {
-                    // Small delay to let browser finish selection update
-                    setTimeout(() => {
+                // Small delay so browser can finish updating native selection
+                setTimeout(() => {
+                    const selection = window.getSelection();
+                    if (getPdfSelectionDetails(selection, containerRef, contentRef)?.selectedText) {
                         handleMouseUp();
-                    }, 100);
-                }
+                        return;
+                    }
+
+                    // 📱 Fallback: if no native selection, tap on textLayer → select nearest word
+                    const touch = e.changedTouches?.[0];
+                    if (touch) {
+                        const el = document.elementFromPoint(touch.clientX, touch.clientY);
+                        if (el?.closest(".textLayer")) {
+                            // Try caretRangeFromPoint (Chrome/WebKit) or caretPositionFromPoint (Firefox)
+                            let range = null;
+                            if (document.caretRangeFromPoint) {
+                                range = document.caretRangeFromPoint(touch.clientX, touch.clientY);
+                            } else if (document.caretPositionFromPoint) {
+                                const pos = document.caretPositionFromPoint(touch.clientX, touch.clientY);
+                                if (pos) {
+                                    range = document.createRange();
+                                    range.setStart(pos.offsetNode, pos.offset);
+                                    range.collapse(true);
+                                }
+                            }
+                            if (range) {
+                                range.expand("word");
+                                const sel = window.getSelection();
+                                sel.removeAllRanges();
+                                sel.addRange(range);
+                                // Check again with the newly created selection
+                                setTimeout(() => {
+                                    if (getPdfSelectionDetails(window.getSelection(), containerRef, contentRef)?.selectedText) {
+                                        handleMouseUp();
+                                    }
+                                }, 50);
+                            }
+                        }
+                    }
+                }, 100);
             }
 
             isTouchSelectingRef.current = false;
             isTouchEventRef.current = false; // 🔒 Release lock
         };
 
+        // ✏️ PEN/STYLUS HANDLER — acts like mouse (immediate, no long-press)
+        const handlePenDown = (e) => {
+            if (e.pointerType !== 'pen') return;
+            if (mode !== "select") return;
+
+            const isTextNode = e.target.closest(".textLayer span");
+            const isDraggableImage = e.target.closest(".pdf-draggable-image");
+
+            if (isDraggableImage) return; // Image has its own pointer drag handler
+
+            if (isTextNode) {
+                // Check if there is already a text selection — pen is starting a drag
+                const selection = window.getSelection();
+                if (selection && selection.toString().trim().length > 0) {
+                    penTextDragRef.current = { x: e.clientX, y: e.clientY, dragging: false };
+                }
+                // Let native browser handle text selection (pen fires mouse events too)
+                return;
+            }
+
+            const isCanvasOrLayer = e.target.closest("canvas") || e.target.closest(".textLayer");
+            if (!isCanvasOrLayer) return;
+
+            e.preventDefault();
+            // 🔒 Lock mouse handlers — pen fires synthetic mouse events simultaneously.
+            // Without this lock, both pen AND mouse handlers process the same selection,
+            // causing double startNewSelection and double handleMouseUp calls.
+            isTouchEventRef.current = true;
+            pendingMouseStartRef.current = { x: e.clientX, y: e.clientY };
+        };
+
+        const handlePenMove = (e) => {
+            if (e.pointerType !== 'pen') return;
+            if (mode !== "select") return;
+
+            // Handle drag of existing text selection to workspace
+            if (penTextDragRef.current && !penTextDragRef.current.dragging) {
+                const dx = e.clientX - penTextDragRef.current.x;
+                const dy = e.clientY - penTextDragRef.current.y;
+                if (Math.sqrt(dx * dx + dy * dy) > 10) {
+                    penTextDragRef.current.dragging = true;
+                    // Dispatch custom drag event so initGlobalTouchDrag handles ghost + drop
+                    const selection = window.getSelection();
+                    const selText = selection?.toString().trim();
+                    if (selText) {
+                        const snippet = {
+                            id: Date.now(),
+                            type: "text",
+                            text: selText,
+                            fromPDF: true,
+                            ...(sourcePdfId != null && { pdf_id: sourcePdfId }),
+                        };
+                        window.dispatchEvent(new CustomEvent("pdf-touch-drag-start", {
+                            detail: { snippet, startX: e.clientX, startY: e.clientY }
+                        }));
+                        clearPopup();
+                    }
+                }
+                return;
+            }
+
+            if (pendingMouseStartRef.current) {
+                const dx = e.clientX - pendingMouseStartRef.current.x;
+                const dy = e.clientY - pendingMouseStartRef.current.y;
+                if (Math.sqrt(dx * dx + dy * dy) > 3) { // 3px threshold for pen precision
+                    startNewSelection(pendingMouseStartRef.current.x, pendingMouseStartRef.current.y);
+                    pendingMouseStartRef.current = null;
+                    updateBox(e.clientX, e.clientY);
+                }
+                return;
+            }
+
+            const box = container.querySelector(".current-selection-box");
+            if (!box) return;
+            e.preventDefault();
+            updateBox(e.clientX, e.clientY);
+        };
+
+        const handlePenUp = (e) => {
+            if (e.pointerType !== 'pen') return;
+            const wasDraggingText = penTextDragRef.current?.dragging;
+            penTextDragRef.current = null;
+            pendingMouseStartRef.current = null;
+            const box = container.querySelector(".current-selection-box");
+            if (box) box.classList.remove("current-selection-box");
+            if (!wasDraggingText) {
+                // Process the selection
+                handleMouseUp();
+                // Keep mouse lock for ~100ms to suppress synthetic mouseup
+                // that fires immediately after pointerup (would double-process)
+                setTimeout(() => { isTouchEventRef.current = false; }, 100);
+            } else {
+                isTouchEventRef.current = false;
+            }
+        };
+
         // LISTENERS
+        container.addEventListener("pointerdown", handlePenDown);
+        container.addEventListener("pointermove", handlePenMove);
+        container.addEventListener("pointerup", handlePenUp);
+        container.addEventListener("pointercancel", handlePenUp);
         container.addEventListener("mousedown", handleMouseDown);
         container.addEventListener("mousemove", handleMouseMove);
         container.addEventListener("mouseup", handleMouseUpWrapper);
@@ -368,49 +492,33 @@ export const useSelection = (containerRef, mode, contentRef = null, zoomLevel = 
         // Handle text selection change
         const handleSelectionChange = () => {
             const selection = window.getSelection();
-            if (selection && selection.rangeCount > 0 && selection.toString().trim().length > 0) {
-                const range = selection.getRangeAt(0);
-                const rect = range.getBoundingClientRect();
-                let pageNum = null;
-                const contentContainer = contentRef ? contentRef.current : containerRef.current;
-                const wrappers = Array.from(contentContainer.children);
-                wrappers.forEach((wrapper) => {
-                    const wRect = wrapper.getBoundingClientRect();
-                    if (rect.top >= wRect.top && rect.bottom <= wRect.bottom) {
-                        pageNum = parseInt(wrapper.dataset.pageNumber, 10);
-                    }
-                });
-
-                if (pageNum) {
-                    const pageWrapper = Array.from(contentContainer.children).find(
-                        (el) => parseInt(el.dataset.pageNumber, 10) === pageNum
-                    );
-                    const canvas = pageWrapper.querySelector("canvas");
-                    if (canvas) {
-                        const canvasRect = canvas.getBoundingClientRect();
-                        const selData = {
-                            pageNum,
-                            text: selection.toString().trim(),
-                            xPct: (rect.left - canvasRect.left) / canvasRect.width,
-                            yPct: (rect.top - canvasRect.top) / canvasRect.height,
-                            widthPct: rect.width / canvasRect.width,
-                            heightPct: rect.height / canvasRect.height,
-                            fromPDF: true,
-                            type: "anchor",
-                        };
-                        containerRef.current._lastSelection = selData;
-                    }
-                }
+            const selectionDetails = getPdfSelectionDetails(selection, containerRef, contentRef);
+            if (selectionDetails?.selectedText && selectionDetails.canvasRect) {
+                const { rect, pageNum, canvasRect, selectedText } = selectionDetails;
+                const selData = {
+                    pageNum,
+                    text: selectedText,
+                    xPct: (rect.left - canvasRect.left) / canvasRect.width,
+                    yPct: (rect.top - canvasRect.top) / canvasRect.height,
+                    widthPct: rect.width / canvasRect.width,
+                    heightPct: rect.height / canvasRect.height,
+                    fromPDF: true,
+                    type: "anchor",
+                };
+                containerRef.current._lastSelection = selData;
             }
         };
         document.addEventListener("selectionchange", handleSelectionChange);
 
         return () => {
             // Cleanup listeners
+            container.removeEventListener("pointerdown", handlePenDown);
+            container.removeEventListener("pointermove", handlePenMove);
+            container.removeEventListener("pointerup", handlePenUp);
+            container.removeEventListener("pointercancel", handlePenUp);
             container.removeEventListener("mousedown", handleMouseDown);
             container.removeEventListener("mousemove", handleMouseMove);
             container.removeEventListener("mouseup", handleMouseUpWrapper);
-
             container.removeEventListener("touchstart", handleTouchStart);
             container.removeEventListener("touchmove", handleTouchMove);
             container.removeEventListener("touchend", handleTouchEnd);
@@ -423,7 +531,7 @@ export const useSelection = (containerRef, mode, contentRef = null, zoomLevel = 
                 clearTimeout(longPressTimerRef.current);
             }
         };
-    }, [isDragging, selectionBox, startPos, mode, handleMouseUp, containerRef, clearSelectionBox, clearPopup, zoomLevel]);
+    }, [isDragging, selectionBox, startPos, mode, handleMouseUp, containerRef, contentRef, clearSelectionBox, clearPopup, zoomLevel, sourcePdfId]);
 
     return {
         isDragging,

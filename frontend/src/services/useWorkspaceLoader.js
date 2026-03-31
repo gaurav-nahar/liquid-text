@@ -18,6 +18,8 @@ const useWorkspaceLoader = (context) => {
         viewStateRef,
         setGroups,
         setCrossPdfLinks,
+        pendingSummaryText,
+        setPendingSummaryText,
     } = context;
 
     // Track last loaded workspace so we can skip workspace reload on PDF-only switch
@@ -34,6 +36,7 @@ const useWorkspaceLoader = (context) => {
 
         const loadWorkspace = async () => {
             setLoading(true);
+            let appliedPendingSummary = false;
             try {
                 const [data, groupsRes, crossLinksRes] = await Promise.all([
                     api.loadWorkspaceDataByWorkspace(pdfId, activeWorkspace.id),
@@ -52,6 +55,19 @@ const useWorkspaceLoader = (context) => {
                 } = data;
 
                 if (!mounted) return;
+
+                // If a new summary was generated while on another workspace, apply it now
+                const isSummaryWs = activeWorkspace?.name?.toLowerCase() === "summary";
+                if (isSummaryWs && pendingSummaryText) {
+                    const summaryBox = (boxData ?? []).length > 0
+                        ? (boxData ?? []).map((b, i) => i === 0 ? { ...b, text: pendingSummaryText } : b)
+                        : [{ id: `temp-summary-${Date.now()}`, text: pendingSummaryText, x: 36, y: 24, width: 720, height: 640 }];
+                    setEditableBoxes(summaryBox);
+                    setPendingSummaryText?.(null);
+                    appliedPendingSummary = true;
+                } else {
+                    setEditableBoxes(boxData ?? []);
+                }
 
                 const snippetsWithFiles = (snipData ?? []).map((s) => {
                     let extra = {};
@@ -99,7 +115,7 @@ const useWorkspaceLoader = (context) => {
                 setExistingSnippetsMap(map);
 
                 setSnippets(snippetsWithFiles);
-                setEditableBoxes(boxData ?? []);
+                // editableBoxes already set above (with pending summary applied if needed)
 
                 // Normalize lines: backend uses stroke_width, frontend uses width
                 const normalizedLines = (lineData ?? []).map(l => ({
@@ -193,7 +209,7 @@ const useWorkspaceLoader = (context) => {
                 alert("Error loading workspace.");
             } finally {
                 setLoading(false);
-                setIsDirty(false);
+                setIsDirty(appliedPendingSummary);
 
                 const savedView = localStorage.getItem(`view-${pdfId}-${activeWorkspace.id}`);
                 if (savedView) {

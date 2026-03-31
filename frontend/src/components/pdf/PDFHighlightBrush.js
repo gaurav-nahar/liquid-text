@@ -16,6 +16,7 @@ const PDFHighlightBrush = memo(({
         setSnippets,
         setConnections,
         setIsDirty,
+        hoveredAnnotationId,
     } = useApp();
     const isActive = tool === "highlight-brush";
     const canvasRef = useRef(null);
@@ -40,12 +41,21 @@ const PDFHighlightBrush = memo(({
         pageHighlights.forEach(highlight => {
             if (!highlight.path || highlight.path.length < 2) return;
 
+            const isHovered = highlight.id === hoveredAnnotationId;
+
             ctx.beginPath();
             ctx.strokeStyle = highlight.color;
-            ctx.lineWidth = highlight.brushWidth || 20;
+            ctx.lineWidth = isHovered ? (highlight.brushWidth || 20) + 6 : (highlight.brushWidth || 20);
             ctx.lineCap = 'round';
             ctx.lineJoin = 'round';
-            ctx.globalAlpha = 0.5;
+            ctx.globalAlpha = isHovered ? 0.85 : 0.5;
+
+            if (isHovered) {
+                ctx.shadowColor = highlight.color;
+                ctx.shadowBlur = 20;
+            } else {
+                ctx.shadowBlur = 0;
+            }
 
             highlight.path.forEach((point, i) => {
                 const x = point.xPct * width;
@@ -60,42 +70,26 @@ const PDFHighlightBrush = memo(({
             ctx.stroke();
         });
         ctx.restore();
-    }, [existingHighlights, pageNum, width, height, zoomLevel, isResizing]);
+    }, [existingHighlights, pageNum, width, height, zoomLevel, isResizing, hoveredAnnotationId]);
 
-    // Helper to get cleaner coordinates
+    // Helper to get cleaner coordinates — pointer events always have clientX/Y directly
     const getCoordinates = (e) => {
         const rect = canvasRef.current.getBoundingClientRect();
-        let clientX, clientY;
-
-        if (e.touches && e.touches.length > 0) {
-            clientX = e.touches[0].clientX;
-            clientY = e.touches[0].clientY;
-        } else {
-            clientX = e.clientX;
-            clientY = e.clientY;
-        }
-
-        // 🎯 Robust coordinate translation: (ScreenPos - CanvasStart) / Zoom
-        // This factors in centering, padding, and zoom.
         return {
-            x: (clientX - rect.left) / zoomLevel,
-            y: (clientY - rect.top) / zoomLevel
+            x: (e.clientX - rect.left) / zoomLevel,
+            y: (e.clientY - rect.top) / zoomLevel
         };
     };
 
-    // Handle mouse/touch events for drawing
+    // Handle pointer events for drawing (pen/mouse only — touch passes through for scrolling)
     const handleStart = (e) => {
         if (!isActive) return;
-
-        if (e.type === 'touchstart') {
-            // Passive touch listener may not allow preventDefault, but we try anyway
-            // if we want to block scroll
-            if (e.cancelable) e.preventDefault();
-        } else {
-            e.preventDefault();
-        }
+        // 👆 Let finger/touch scroll the PDF while highlighting with pen
+        if (e.pointerType === 'touch') return;
+        e.preventDefault();
         e.stopPropagation();
-
+        // Capture pointer so fast pen strokes never lose the canvas
+        canvasRef.current.setPointerCapture(e.pointerId);
         const { x, y } = getCoordinates(e);
         setIsDrawing(true);
         setCurrentPath([{ x, y }]);
@@ -103,8 +97,9 @@ const PDFHighlightBrush = memo(({
 
     const handleMove = (e) => {
         if (!isDrawing) return;
+        if (e.pointerType === 'touch') return; // Touch scrolls, pen highlights
 
-        // CRITICAL: Prevent scrolling on touch devices while drawing
+        // CRITICAL: Prevent scrolling while drawing
         if (e.cancelable) e.preventDefault();
         e.stopPropagation();
 
@@ -219,14 +214,10 @@ const PDFHighlightBrush = memo(({
                 userSelect: 'none',
                 touchAction: isActive ? 'none' : 'auto', // Disable default touch behavior like scrolling
             }}
-            onMouseDown={handleStart}
-            onMouseMove={handleMove}
-            onMouseUp={handleEnd}
-            onMouseLeave={handleEnd}
-            onTouchStart={handleStart}
-            onTouchMove={handleMove}
-            onTouchEnd={handleEnd}
-            onTouchCancel={handleEnd}
+            onPointerDown={handleStart}
+            onPointerMove={handleMove}
+            onPointerUp={handleEnd}
+            onPointerCancel={handleEnd}
         />
     );
 });

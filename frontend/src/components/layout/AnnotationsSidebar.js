@@ -5,6 +5,7 @@ export default function AnnotationsSidebar() {
     const {
         allAnnotations,
         showHighlightsList, setShowHighlightsList,
+        hoveredAnnotationId, setHoveredAnnotationId,
         pdfRef,
         handleDeleteHighlight,
         handleDeletePdfText,
@@ -116,8 +117,8 @@ export default function AnnotationsSidebar() {
                                     onClick={() => onJumpToHighlight(item)}
                                     className="annotation-item"
                                     style={{ padding: "10px 16px", borderBottom: "1px solid #f0f0f0", cursor: "pointer", display: "flex", alignItems: "flex-start", gap: 10, transition: "background 0.15s" }}
-                                    onMouseEnter={e => e.currentTarget.style.background = "#f9f9f9"}
-                                    onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                                    onMouseEnter={e => { e.currentTarget.style.background = "#f9f9f9"; setHoveredAnnotationId(item.id); }}
+                                    onMouseLeave={e => { e.currentTarget.style.background = "transparent"; setHoveredAnnotationId(null); }}
                                 >
                                     {/* Color stripe */}
                                     <div style={{ width: 3, borderRadius: 2, alignSelf: "stretch", background: item.color || "#ccc", flexShrink: 0 }} />

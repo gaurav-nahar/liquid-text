@@ -1,3 +1,33 @@
+import api from "../api/api";
+
+const DEVANAGARI_RE = /[\u0900-\u097F]/;
+
+const looksLikeBrokenPdfText = (value) => {
+  const text = (value || "").trim();
+  if (!text) return true;
+  if (DEVANAGARI_RE.test(text)) return false;
+
+  const words = text.split(/\s+/).filter(Boolean);
+  const latinWords = words.filter((word) => /^[A-Za-z]+$/.test(word));
+  const suspiciousLatinWords = latinWords.filter((word) => {
+    const lower = word.toLowerCase();
+    const vowelCount = (lower.match(/[aeiou]/g) || []).length;
+    return (
+      word.length >= 4 &&
+      (
+        /[aeiou]{3,}/.test(lower) ||
+        /[^aeiou]{5,}/.test(lower) ||
+        /q(?!u)/.test(lower) ||
+        /[xjw]{2,}/.test(lower) ||
+        vowelCount / Math.max(1, lower.length) > 0.72
+      )
+    );
+  });
+  const oddSymbolCount = (text.match(/[@&]/g) || []).length;
+
+  return oddSymbolCount > 0 || suspiciousLatinWords.length > 0;
+};
+
 export default function useSnippetHandlers({ tool, TOOL_MODES, pdfRef, workspaceRef, setSnippets, setConnections, screenToWorld, getScale, recordHistory, getSnapshot, showToast }) {
   const addSnippet = (data, dropPos) => {
     if (recordHistory && getSnapshot) recordHistory(getSnapshot());
@@ -15,20 +45,51 @@ export default function useSnippetHandlers({ tool, TOOL_MODES, pdfRef, workspace
       pageNum: data.pageNum || pdfRef.current?.getCurrentPageNum?.() || 1,
     };
 
+    const maybeRunOcrFallback = async (snippetId, currentText) => {
+      if (!data.ocrImage || !looksLikeBrokenPdfText(currentText)) return;
+
+      try {
+        const response = await api.ocrSelectionImage(data.ocrImage, "hin+eng");
+        const ocrText = (response?.data?.text || "").trim();
+        if (!ocrText) return;
+
+        setSnippets((prev) =>
+          prev.map((item) =>
+            item.id === snippetId
+              ? { ...item, text: ocrText }
+              : item
+          )
+        );
+      } catch (err) {
+        console.warn("OCR fallback failed:", err);
+        if (!currentText && showToast) {
+          showToast("Hindi text OCR failed for this selection.", "warning");
+        }
+      }
+    };
+
     // ---------- 2. APPLY PDF-SPECIFIC CLEANUP ----------
     if (isFromPDF) {
-      snippet.text = (data.text || "").replace(/\s+/g, " ").trim();
+      // Preserve line breaks and complex-script character ordering from the PDF selection.
+      snippet.text = (data.text || "").replace(/\u00a0/g, " ").trim();
       snippet.width = isText ? (data.width / scale) + 40 : (data.width / scale);
       snippet.height = isText ? "auto" : (data.height / scale);
+      const shouldUseOcrFallback = isText && !!data.ocrImage && looksLikeBrokenPdfText(snippet.text);
 
-      // Guard: block blank text snippets caused by PDF text extraction failure
-      // (common with Hindi/Devanagari or scanned PDFs that lack proper Unicode mappings)
-      if (isText && !snippet.text) {
+      // Guard: if the PDF text layer is broken, keep the drop alive and OCR it instead.
+      if (isText && !snippet.text && !data.ocrImage) {
         if (showToast) showToast("Text could not be extracted from this PDF. Use the image crop tool to capture this area.", "warning");
         return;
       }
 
+      if (shouldUseOcrFallback) {
+        snippet.text = "Extracting text...";
+      }
+
       setSnippets((prev) => [...prev, snippet]);
+      if (isText) {
+        void maybeRunOcrFallback(snippet.id, (data.text || "").trim());
+      }
     } else {
       if (!data.text) snippet.text = "New note...";
       setSnippets((prev) => [...prev, snippet]);

@@ -2,101 +2,145 @@ import React, { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 
 const TraceLineLayer = () => {
-    const svgRef = useRef(null);
+    const svgRef  = useRef(null);
     const pathRef = useRef(null);
-    const timerRef = useRef(null);
+    const fadeRef = useRef(null);
+    const rafRef  = useRef(null);
+
+    // Live-tracking state: kept in refs so the RAF loop can read them without stale closures
+    const liveRef = useRef(null); // { snippetId, highlightRect } — set while actively tracking
+
+    const getEndpoints = (snippetId, highlightRect) => {
+        const snippetEl = document.getElementById(`workspace-item-${snippetId}`);
+        if (!snippetEl) return null;
+        const r = snippetEl.getBoundingClientRect();
+
+        const startX = highlightRect.right;
+        const startY = highlightRect.top + highlightRect.height / 2;
+        const endX   = r.left;
+        const endY   = r.top + r.height / 2;
+        return { startX, startY, endX, endY };
+    };
+
+    const drawPath = (startX, startY, endX, endY) => {
+        const pathEl = pathRef.current;
+        if (!pathEl) return;
+        const curvature = Math.max(30, Math.abs(endX - startX) * 0.45);
+        const d = `M ${startX} ${startY} C ${startX + curvature} ${startY}, ${endX - curvature} ${endY}, ${endX} ${endY}`;
+        pathEl.setAttribute('d', d);
+    };
+
+    const stopLive = () => {
+        liveRef.current = null;
+        if (rafRef.current) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
+    };
+
+    const startFade = () => {
+        if (fadeRef.current) clearTimeout(fadeRef.current);
+        fadeRef.current = setTimeout(() => {
+            const pathEl = pathRef.current;
+            const svgEl  = svgRef.current;
+            if (pathEl) pathEl.style.opacity = '0';
+            if (svgEl)  svgEl.style.opacity  = '0';
+            stopLive();
+        }, 500);
+    };
+
+    // RAF loop: continuously updates the path while live-tracking
+    const runLiveLoop = () => {
+        const tick = () => {
+            if (!liveRef.current) return;
+            const { snippetId, highlightRect } = liveRef.current;
+            const pts = getEndpoints(snippetId, highlightRect);
+            if (pts) drawPath(pts.startX, pts.startY, pts.endX, pts.endY);
+            rafRef.current = requestAnimationFrame(tick);
+        };
+        if (rafRef.current) cancelAnimationFrame(rafRef.current);
+        rafRef.current = requestAnimationFrame(tick);
+    };
 
     useEffect(() => {
+        const svgEl  = svgRef.current;
+        const pathEl = pathRef.current;
+
         const handleTrace = (e) => {
             const { snippetId, highlightRect } = e.detail || {};
             if (!highlightRect || !snippetId) return;
 
-            const snippetEl = document.getElementById(`workspace-item-${snippetId}`);
-            if (!snippetEl) return;
+            const pts = getEndpoints(snippetId, highlightRect);
+            if (!pts) return;
 
-            const snippetRect = snippetEl.getBoundingClientRect();
+            // Cancel any pending fade
+            if (fadeRef.current) clearTimeout(fadeRef.current);
 
-            const startX = highlightRect.right;
-            const startY = highlightRect.top + highlightRect.height / 2;
-            const endX = snippetRect.left;
-            const endY = snippetRect.top + snippetRect.height / 2;
-
-            const curvature = Math.max(40, Math.abs(endX - startX) * 0.5);
-            const cp1x = startX + curvature;
-            const cp1y = startY;
-            const cp2x = endX - curvature;
-            const cp2y = endY;
-
-            const d = `M ${startX} ${startY} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${endX} ${endY}`;
-
-            const svgEl = svgRef.current;
-            const pathEl = pathRef.current;
-            if (!svgEl || !pathEl) return;
-
-            // Apply path and prepare dash animation directly on DOM for speed
-            pathEl.setAttribute('d', d);
-
-            // ensure no layout thrash before measuring
-            const len = pathEl.getTotalLength();
+            // Set initial path instantly (no transition) for snappy appearance
             pathEl.style.transition = 'none';
-            pathEl.style.strokeDasharray = `${len}`;
+            drawPath(pts.startX, pts.startY, pts.endX, pts.endY);
+
+            const len = pathEl.getTotalLength();
+            pathEl.style.strokeDasharray  = `${len}`;
             pathEl.style.strokeDashoffset = `${len}`;
-            pathEl.style.opacity = '1';
+            pathEl.style.opacity          = '1';
+            svgEl.style.opacity           = '1';
 
-            // Make SVG visible (fast show)
-            svgEl.style.opacity = '1';
-
-            // Trigger draw using rAF for immediate, smooth animation
             requestAnimationFrame(() => {
-                // short transition for a snappy trace
-                pathEl.style.transition = 'stroke-dashoffset 180ms cubic-bezier(0.2,0,0,1), opacity 220ms linear';
+                pathEl.style.transition    = 'stroke-dashoffset 160ms cubic-bezier(0.2,0,0,1)';
                 pathEl.style.strokeDashoffset = '0';
             });
 
-            if (timerRef.current) clearTimeout(timerRef.current);
-            // keep visible briefly after draw, then hide quickly
-            timerRef.current = setTimeout(() => {
-                // fade out fast
-                pathEl.style.opacity = '0';
-                svgEl.style.opacity = '0';
-            }, 350);
+            // Start live-tracking: RAF will update path position every frame
+            liveRef.current = { snippetId, highlightRect };
+            runLiveLoop();
+
+            // Reset fade timer — line stays as long as box is moving; fades when still
+            startFade();
+        };
+
+        // Re-arm fade timer whenever the snippet moves so the line stays visible during drag
+        const handleMove = () => {
+            if (!liveRef.current) return;
+            if (fadeRef.current) clearTimeout(fadeRef.current);
+            startFade();
         };
 
         window.addEventListener('trace-snippet-connection', handleTrace);
+        window.addEventListener('mousemove', handleMove);
+
         return () => {
             window.removeEventListener('trace-snippet-connection', handleTrace);
-            if (timerRef.current) clearTimeout(timerRef.current);
+            window.removeEventListener('mousemove', handleMove);
+            stopLive();
+            if (fadeRef.current) clearTimeout(fadeRef.current);
         };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    // Keep SVG mounted, toggle visibility via inline styles for zero React re-renders on animation
     return createPortal(
         <svg
             ref={svgRef}
             style={{
                 position: 'fixed',
-                top: 0,
-                left: 0,
-                width: '100vw',
-                height: '100vh',
+                inset: 0,
                 pointerEvents: 'none',
                 zIndex: 2147483647,
                 opacity: 0,
-                transition: 'opacity 120ms linear'
+                transition: 'opacity 120ms linear',
+                overflow: 'visible',
             }}
         >
             <path
                 ref={pathRef}
                 d="M0 0"
                 stroke="#007bff"
-                strokeWidth="4"
+                strokeWidth="2.5"
                 fill="none"
                 strokeLinecap="round"
                 strokeLinejoin="round"
                 style={{
-                    filter: 'drop-shadow(0px 0px 6px rgba(0,123,255,0.7))',
+                    filter: 'drop-shadow(0 0 4px rgba(0,123,255,0.55))',
                     willChange: 'stroke-dashoffset, opacity',
-                    opacity: 0
+                    opacity: 0,
+                    transition: 'opacity 200ms linear',
                 }}
             />
         </svg>,

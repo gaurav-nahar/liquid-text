@@ -1,16 +1,37 @@
 import React, { useRef, useState, useEffect, useCallback, createContext, useContext, useMemo } from 'react';
 
-// Create a context so children can access coordinate helpers
-const CanvasContext = createContext({
+const WORKSPACE_SECTIONS = [
+    { id: 'ws-1', x: 0, y: 0, width: 1100, height: 1500, color: '#e8f3ff' },
+    { id: 'ws-2', x: 1100, y: 0, width: 1100, height: 1500, color: '#fff8d8' },
+    { id: 'ws-3', x: 2200, y: 0, width: 1100, height: 1500, color: '#eef9ec' },
+    { id: 'ws-4', x: 0, y: 1500, width: 1100, height: 1500, color: '#fff0f0' },
+    { id: 'ws-5', x: 1100, y: 1500, width: 1100, height: 1500, color: '#f6efff' },
+    { id: 'ws-6', x: 2200, y: 1500, width: 1100, height: 1500, color: '#fff3e3' },
+];
+
+// Stable context: screenToWorld, worldToScreen, getScale, getPan, containerRef, rectRef
+// This NEVER changes after mount → components using it don't re-render on pan/zoom
+const CanvasStableContext = createContext({
     screenToWorld: (x, y) => ({ x, y }),
     worldToScreen: (x, y) => ({ x, y }),
-    scale: 1,
-    pan: { x: 0, y: 0 },
+    getScale: () => 1,
+    getPan: () => ({ x: 0, y: 0 }),
     containerRef: { current: null },
     rectRef: { current: { left: 0, top: 0 } }
 });
 
-export const useCanvas = () => useContext(CanvasContext);
+// View context: scale, pan — changes every frame while panning/zooming
+// Only subscribe to this if you actually need reactive scale/pan for rendering
+const CanvasViewContext = createContext({ scale: 1, pan: { x: 0, y: 0 } });
+
+// Full context: backward-compatible hook (re-renders on pan/zoom — use sparingly)
+export const useCanvas = () => ({
+    ...useContext(CanvasStableContext),
+    ...useContext(CanvasViewContext),
+});
+
+// Stable-only hook: does NOT re-render on pan/zoom — use in drag/drop, text boxes, etc.
+export const useCanvasStable = () => useContext(CanvasStableContext);
 
 const InfiniteCanvas = React.forwardRef(({ children, className, style, initialScale = 1, initialPan = { x: 0, y: 0 }, onViewChange, panningEnabled = true }, ref) => {
     const [pan, setPan] = useState(initialPan);
@@ -20,6 +41,7 @@ const InfiniteCanvas = React.forwardRef(({ children, className, style, initialSc
     const lastMousePos = useRef({ x: 0, y: 0 });
     const isSpacePressed = useRef(false);
     const isZooming = useRef(false); // Track if 2-finger zoom started on canvas
+    const activePointers = useRef(new Map()); // pointerId -> {x, y} for pinch zoom
 
     // Refs for stable access in callbacks without re-creating functions
     const panRef = useRef(pan);
@@ -75,17 +97,27 @@ const InfiniteCanvas = React.forwardRef(({ children, className, style, initialSc
         };
     }, []);
 
-    // Stable context value
-    const canvasContextValue = useMemo(() => ({
+    // 🔬 Helper to Clamp Pan
+    const clampPan = useCallback((x, y, s) => {
+        const limit = 5000 * s;
+        return {
+            x: Math.min(limit, Math.max(-limit, x)),
+            y: Math.min(limit, Math.max(-limit, y))
+        };
+    }, []);
+
+    // Stable context value — deps are empty-dep callbacks, so this is created once
+    const stableContextValue = useMemo(() => ({
         screenToWorld,
         worldToScreen,
         getScale: () => scaleRef.current,
         getPan: () => panRef.current,
-        scale,
-        pan,
         containerRef,
         rectRef
-    }), [screenToWorld, worldToScreen, scale, pan]);
+    }), [screenToWorld, worldToScreen]);
+
+    // View context value — changes on every pan/zoom, only DrawingCanvas subscribes to this
+    const viewContextValue = useMemo(() => ({ scale, pan }), [scale, pan]);
 
     // Expose helpers to parent via Ref
     React.useImperativeHandle(ref, () => ({
@@ -93,7 +125,7 @@ const InfiniteCanvas = React.forwardRef(({ children, className, style, initialSc
         worldToScreen,
         getScale: () => scaleRef.current,
         getPan: () => panRef.current
-    }));
+    }), [screenToWorld, worldToScreen]);
 
     // ⌨️ Keyboard Listeners for Space Pan
     useEffect(() => {
@@ -117,16 +149,6 @@ const InfiniteCanvas = React.forwardRef(({ children, className, style, initialSc
         return () => {
             window.removeEventListener('keydown', handleKeyDown);
             window.removeEventListener('keyup', handleKeyUp);
-        };
-    }, []);
-
-    // 🔬 Helper to Clamp Pan
-    const clampPan = useCallback((x, y, s) => {
-        // Simple bounds: -2500 to +2500 (approx 5000px width ~ 4-5 pages)
-        const limit = 2500 * s;
-        return {
-            x: Math.min(limit, Math.max(-limit, x)),
-            y: Math.min(limit, Math.max(-limit, y))
         };
     }, []);
 
@@ -169,21 +191,37 @@ const InfiniteCanvas = React.forwardRef(({ children, className, style, initialSc
         }
     }, [clampPan]); // Only depends on clampPan which is also stable if defined outside or wrapped in useCallback
 
-    // 🖱️ Mouse Down -> Start Pan
-    const handleMouseDown = (e) => {
-        // Panning Logic:
-        // 1. Middle Click OR Space+Left = ALWAYS ALLOWED
-        // 2. Alt+Left = ALWAYS ALLOWED
-        // 3. Left Click on Background = ONLY IF panningEnabled is TRUE (Select Tool)
+    // 🖱️✏️📱 Unified Pointer Down (mouse + touch + pen/stylus)
+    const lastTouchDistance = useRef(0);
+    const lastTouchCenter = useRef({ x: 0, y: 0 });
 
+    const handlePointerDown = (e) => {
         if (e.defaultPrevented) return;
 
-        const isLeftClick = e.button === 0;
+        // Track every pointer for pinch-zoom detection
+        activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+        if (activePointers.current.size === 2) {
+            // Two-finger / dual-pen pinch zoom
+            isPanning.current = false;
+            isZooming.current = true;
+            const pts = [...activePointers.current.values()];
+            const dx = pts[0].x - pts[1].x;
+            const dy = pts[0].y - pts[1].y;
+            lastTouchDistance.current = Math.sqrt(dx * dx + dy * dy);
+            lastTouchCenter.current = {
+                x: (pts[0].x + pts[1].x) / 2,
+                y: (pts[0].y + pts[1].y) / 2
+            };
+            return;
+        }
+
         const isMiddleClick = e.button === 1;
+        const isActionButton = e.button === 0 || e.pointerType === 'pen' || e.pointerType === 'touch';
         const isSpacePan = isSpacePressed.current;
 
         const shouldPan = isMiddleClick ||
-            (isLeftClick && (e.altKey || isSpacePan || panningEnabled));
+            (isActionButton && (e.altKey || isSpacePan || panningEnabled));
 
         if (shouldPan) {
             e.preventDefault();
@@ -191,107 +229,78 @@ const InfiniteCanvas = React.forwardRef(({ children, className, style, initialSc
             lastMousePos.current = { x: e.clientX, y: e.clientY };
             document.body.style.cursor = 'grabbing';
             if (containerRef.current) containerRef.current.style.cursor = 'grabbing';
-        }
-    };
-
-    // 📱 Touch Handlers
-    const lastTouchDistance = useRef(0);
-    const lastTouchCenter = useRef({ x: 0, y: 0 });
-
-    const handleTouchStart = (e) => {
-        if (e.defaultPrevented) return;
-
-        if (e.touches.length === 1 && panningEnabled) {
-            isPanning.current = true;
-            lastMousePos.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-        } else if (e.touches.length === 2) {
-            isPanning.current = false; // Stop panning to zoom
-            isZooming.current = true; // Two fingers touch started HERE
-            const dx = e.touches[0].clientX - e.touches[1].clientX;
-            const dy = e.touches[0].clientY - e.touches[1].clientY;
-            lastTouchDistance.current = Math.sqrt(dx * dx + dy * dy);
-            lastTouchCenter.current = {
-                x: (e.touches[0].clientX + e.touches[1].clientX) / 2,
-                y: (e.touches[0].clientY + e.touches[1].clientY) / 2
-            };
+            // Capture pointer so we never lose it during fast movement (key for Wacom pen)
+            e.currentTarget.setPointerCapture(e.pointerId);
         }
     };
 
     useEffect(() => {
-        const handleMouseMove = (e) => {
-            if (!isPanning.current) return;
-            e.preventDefault();
+        const handlePointerMove = (e) => {
+            // Keep pointer position map up to date
+            if (activePointers.current.has(e.pointerId)) {
+                activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+            }
 
-            const clientX = e.clientX ?? e.touches?.[0]?.clientX;
-            const clientY = e.clientY ?? e.touches?.[0]?.clientY;
-
-            if (clientX === undefined) return;
-
-            const dx = clientX - lastMousePos.current.x;
-            const dy = clientY - lastMousePos.current.y;
-
-            setPan(prev => clampPan(prev.x + dx, prev.y + dy, scaleRef.current));
-            lastMousePos.current = { x: clientX, y: clientY };
-        };
-
-        const handleTouchMove = (e) => {
-            if (e.touches.length === 1 && isPanning.current) {
-                handleMouseMove(e);
-            } else if (e.touches.length === 2) {
-                if (!isZooming.current) return; // Ignore if gesture started outside
+            if (activePointers.current.size >= 2 && isZooming.current) {
+                // Pinch zoom
                 e.preventDefault();
                 const currentScale = scaleRef.current;
                 const currentPan = panRef.current;
-
-                const dx = e.touches[0].clientX - e.touches[1].clientX;
-                const dy = e.touches[0].clientY - e.touches[1].clientY;
+                const pts = [...activePointers.current.values()];
+                const dx = pts[0].x - pts[1].x;
+                const dy = pts[0].y - pts[1].y;
                 const distance = Math.sqrt(dx * dx + dy * dy);
                 const center = {
-                    x: (e.touches[0].clientX + e.touches[1].clientX) / 2,
-                    y: (e.touches[0].clientY + e.touches[1].clientY) / 2
+                    x: (pts[0].x + pts[1].x) / 2,
+                    y: (pts[0].y + pts[1].y) / 2
                 };
 
                 const factor = distance / lastTouchDistance.current;
-                let newScale = currentScale * factor;
-                newScale = Math.min(Math.max(0.1, newScale), 5);
+                let newScale = Math.min(Math.max(0.1, currentScale * factor), 5);
 
                 const rect = containerRef.current.getBoundingClientRect();
-                const mouseX = center.x - rect.left;
-                const mouseY = center.y - rect.top;
+                const mx = center.x - rect.left;
+                const my = center.y - rect.top;
+                const wx = (mx - currentPan.x) / currentScale;
+                const wy = (my - currentPan.y) / currentScale;
 
-                const worldMouseX = (mouseX - currentPan.x) / currentScale;
-                const worldMouseY = (mouseY - currentPan.y) / currentScale;
-
-                const newPanX = mouseX - worldMouseX * newScale;
-                const newPanY = mouseY - worldMouseY * newScale;
-
-                setPan(clampPan(newPanX, newPanY, newScale));
+                setPan(clampPan(mx - wx * newScale, my - wy * newScale, newScale));
                 setScale(newScale);
-
                 lastTouchDistance.current = distance;
                 lastTouchCenter.current = center;
+            } else if (isPanning.current) {
+                e.preventDefault();
+                const dx = e.clientX - lastMousePos.current.x;
+                const dy = e.clientY - lastMousePos.current.y;
+                setPan(prev => clampPan(prev.x + dx, prev.y + dy, scaleRef.current));
+                lastMousePos.current = { x: e.clientX, y: e.clientY };
             }
         };
 
-        const handleUp = () => {
-            isZooming.current = false; // Reset zooming state
-            if (isPanning.current) {
+        const handlePointerUp = (e) => {
+            activePointers.current.delete(e.pointerId);
+
+            if (activePointers.current.size < 2) {
+                isZooming.current = false;
+            }
+
+            if (isPanning.current && activePointers.current.size === 0) {
                 isPanning.current = false;
                 document.body.style.cursor = 'default';
-                if (containerRef.current) containerRef.current.style.cursor = isSpacePressed.current ? 'grab' : 'default';
+                if (containerRef.current) {
+                    containerRef.current.style.cursor = isSpacePressed.current ? 'grab' : 'default';
+                }
             }
         };
 
-        window.addEventListener('mousemove', handleMouseMove);
-        window.addEventListener('mouseup', handleUp);
-        window.addEventListener('touchmove', handleTouchMove, { passive: false });
-        window.addEventListener('touchend', handleUp);
+        window.addEventListener('pointermove', handlePointerMove);
+        window.addEventListener('pointerup', handlePointerUp);
+        window.addEventListener('pointercancel', handlePointerUp);
 
         return () => {
-            window.removeEventListener('mousemove', handleMouseMove);
-            window.removeEventListener('mouseup', handleUp);
-            window.removeEventListener('touchmove', handleTouchMove);
-            window.removeEventListener('touchend', handleUp);
+            window.removeEventListener('pointermove', handlePointerMove);
+            window.removeEventListener('pointerup', handlePointerUp);
+            window.removeEventListener('pointercancel', handlePointerUp);
         };
     }, [clampPan]);
 
@@ -318,7 +327,8 @@ const InfiniteCanvas = React.forwardRef(({ children, className, style, initialSc
     };
 
     return (
-        <CanvasContext.Provider value={canvasContextValue}>
+        <CanvasStableContext.Provider value={stableContextValue}>
+        <CanvasViewContext.Provider value={viewContextValue}>
             <div
                 ref={containerRef}
                 className={className}
@@ -334,8 +344,7 @@ const InfiniteCanvas = React.forwardRef(({ children, className, style, initialSc
                     backgroundPosition: `${pan.x}px ${pan.y}px`,
                     willChange: 'background-position, background-size'
                 }}
-                onMouseDown={handleMouseDown}
-                onTouchStart={handleTouchStart}
+                onPointerDown={handlePointerDown}
             >
                 {/* The World Container */}
                 <div
@@ -350,6 +359,42 @@ const InfiniteCanvas = React.forwardRef(({ children, className, style, initialSc
                         willChange: 'transform'
                     }}
                 >
+                    <div
+                        style={{
+                            position: 'absolute',
+                            inset: 0,
+                            pointerEvents: 'none',
+                            zIndex: 0
+                        }}
+                    >
+                        {WORKSPACE_SECTIONS.map((section) => (
+                            <div
+                                key={section.id}
+                                style={{
+                                    position: 'absolute',
+                                    left: section.x,
+                                    top: section.y,
+                                    width: section.width,
+                                    height: section.height,
+                                    background: section.color,
+                                    border: '1px solid rgba(15, 23, 42, 0.05)',
+                                    borderRadius: 0,
+                                    boxShadow: 'none',
+                                    overflow: 'hidden'
+                                }}
+                            >
+                                <div
+                                    style={{
+                                        position: 'absolute',
+                                        inset: 0,
+                                        backgroundImage: 'linear-gradient(rgba(15,23,42,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(15,23,42,0.03) 1px, transparent 1px)',
+                                        backgroundSize: '48px 48px',
+                                        opacity: 0.5
+                                    }}
+                                />
+                            </div>
+                        ))}
+                    </div>
                     {children}
                 </div>
 
@@ -378,7 +423,8 @@ const InfiniteCanvas = React.forwardRef(({ children, className, style, initialSc
                     </div>
                 </div>
             </div>
-        </CanvasContext.Provider>
+        </CanvasViewContext.Provider>
+        </CanvasStableContext.Provider>
     );
 });
 

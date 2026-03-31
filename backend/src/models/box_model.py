@@ -6,8 +6,8 @@ class Box(Base):
     __tablename__ = "boxes"
 
     id = Column(Integer, primary_key=True, index=True)
-    pdf_id = Column(Integer, ForeignKey("pdf_files.id", ondelete="CASCADE"), nullable=False)
-    workspace_id = Column(Integer, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    pdf_id = Column(Integer, ForeignKey("pdf_files.id", ondelete="CASCADE"), nullable=False, index=True)
+    workspace_id = Column(Integer, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True)
     user_id = Column(String, index=True, nullable=False) # Mandatory for user isolation
     text = Column(Text, nullable=True)
     x = Column(Float, nullable=False, default=0.0)

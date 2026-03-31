@@ -15,7 +15,24 @@ class BookmarkRepo:
 
     @staticmethod
     def create(db: Session, pdf_id: int, user_id: str, page_num: int, name: str = ""):
-        bm = Bookmark(pdf_id=pdf_id, user_id=user_id, page_num=page_num, name=name)
+        existing = (
+            db.query(Bookmark)
+            .filter(
+                Bookmark.pdf_id == pdf_id,
+                Bookmark.user_id == user_id,
+                Bookmark.page_num == page_num,
+            )
+            .first()
+        )
+
+        if existing:
+            if name and name.strip():
+                existing.name = name.strip()
+                db.commit()
+                db.refresh(existing)
+            return existing
+
+        bm = Bookmark(pdf_id=pdf_id, user_id=user_id, page_num=page_num, name=(name or "").strip())
         db.add(bm)
         db.commit()
         db.refresh(bm)

@@ -29,22 +29,42 @@ export const TRANSITION = "transform 0.36s cubic-bezier(.22,.9,.32,1)"; // Smoot
 export const getCurrentPageNum = (container, contentContainer = null) => {
     if (!container) return 1;
     const pagesParent = contentContainer || container;
-    const children = Array.from(pagesParent.children);
-    const scrollTop = container.scrollTop;
-    const viewportCenter = scrollTop + container.clientHeight / 2;
+    const children = Array.from(pagesParent.children).filter(
+        el => el.dataset && el.dataset.pageNumber
+    );
+    if (!children.length) return 1;
+
+    const containerRect = container.getBoundingClientRect();
+    const viewportCenter = containerRect.top + container.clientHeight / 2;
     let best = 1;
+    let bestVisibleHeight = -1;
     let minDiff = Infinity;
+
     for (let i = 0; i < children.length; i++) {
         const w = children[i];
         if (w.style.position === "absolute") continue;
-        const top = w.offsetTop;
-        const center = top + w.offsetHeight / 2;
+
+        const rect = w.getBoundingClientRect();
+        if (rect.height <= 0) continue;
+
+        const overlapTop = Math.max(rect.top, containerRect.top);
+        const overlapBottom = Math.min(rect.bottom, containerRect.bottom);
+        const visibleHeight = Math.max(0, overlapBottom - overlapTop);
+        const center = rect.top + rect.height / 2;
         const diff = Math.abs(center - viewportCenter);
-        if (diff < minDiff) {
+
+        // Prefer the page that is most visible in the viewport.
+        // This stays correct even when the PDF container is zoomed via CSS transform.
+        if (
+            visibleHeight > bestVisibleHeight + 1 ||
+            (Math.abs(visibleHeight - bestVisibleHeight) <= 1 && diff < minDiff)
+        ) {
+            bestVisibleHeight = visibleHeight;
             minDiff = diff;
             best = parseInt(w.dataset.pageNumber || i + 1, 10);
         }
     }
+
     return best;
 };
 
@@ -65,6 +85,10 @@ export const getCurrentPageNum = (container, contentContainer = null) => {
  * @param {Object} shrunkAboveRef - List of pages sitting in the top stack.
  * @param {boolean} debug - If true, it prints logs to console.
  */
+// Helper to extract page number from an item that may be {page, focal} or a plain number
+const getPage = (item) => typeof item === 'object' ? item.page : item;
+const getFocal = (item, fallback) => typeof item === 'object' ? item.focal : fallback;
+
 export const applyAllShrinks = (
     focusedPage,
     container,
@@ -75,31 +99,49 @@ export const applyAllShrinks = (
     debug = false
 ) => {
     if (!container || !contentContainer) return;
-    const pages = Array.from(contentContainer.children);
+    // Only operate on actual PDF page wrappers — skip SVG overlays and other non-page children
+    const pages = Array.from(contentContainer.children).filter(
+        el => el.dataset && el.dataset.pageNumber
+    );
     if (!pages.length || focusedPage < 1 || focusedPage > pages.length) return;
 
     const focusedEl = pages[focusedPage - 1];
     const prevRect = focusedEl.getBoundingClientRect();
     const prevTopComp = prevRect.top;
 
-    const below = [...shrunkBelowRef.current]
-        .filter((p) => p > focusedPage && p <= pages.length)
-        .sort((a, b) => a - b);
-    const above = [...shrunkAboveRef.current]
-        .filter((p) => p < focusedPage && p >= 1)
-        .sort((a, b) => b - a);
+    // Group below items by their focal page
+    const belowByFocal = {};
+    shrunkBelowRef.current.forEach((item) => {
+        const p = getPage(item);
+        const f = getFocal(item, focusedPage);
+        if (p < 1 || p > pages.length) return;
+        if (!belowByFocal[f]) belowByFocal[f] = [];
+        belowByFocal[f].push(p);
+    });
+
+    // Group above items by their focal page
+    const aboveByFocal = {};
+    shrunkAboveRef.current.forEach((item) => {
+        const p = getPage(item);
+        const f = getFocal(item, focusedPage);
+        if (p < 1 || p > pages.length) return;
+        if (!aboveByFocal[f]) aboveByFocal[f] = [];
+        aboveByFocal[f].push(p);
+    });
+
+    // Flat lists for layout decisions
+    const below = Object.values(belowByFocal).flat().sort((a, b) => a - b);
+    const above = Object.values(aboveByFocal).flat().sort((a, b) => b - a);
 
     contentContainer.style.position = "relative";
 
     // 1. Calculate reserved height for the Above stack
-    // (We skip calculating individual heights to keep the stack tight at the top)
     let aboveStackHeight = 0;
     if (above.length > 0) {
         aboveStackHeight = 20; // Small fixed space for the top stack
     }
 
     // 2. Initial Layout Reset: Set Shrunken to Absolute, Rest to Static
-    // This allows the browser to calculate the focused page's "flow" position correctly
     const shrunkSet = new Set([...below, ...above]);
     pages.forEach((el, i) => {
         const num = i + 1;
@@ -122,8 +164,6 @@ export const applyAllShrinks = (
     });
 
     // 3. Capture Anchor Point
-    // Now that shrunken pages are out of flow and Margin is applied, 
-    // offsetTop is the exact visual top edge of the focused page.
     const anchorTop = focusedEl.offsetTop;
     const focusedHeight = focusedEl.offsetHeight;
 
@@ -134,12 +174,10 @@ export const applyAllShrinks = (
         el.style.transform = `scaleY(${scale})`;
         el.style.zIndex = zIndex;
         el.style.transition = TRANSITION;
-        // If scale is 0, hide it completely
         el.style.opacity = scale < 0.01 ? "0" : "1";
     };
 
     const applyAbove = (el, bottom, scale, zIndex) => {
-        // Place the box so its bottom is at the 'bottom' coordinate
         const top = bottom - el.offsetHeight;
         el.style.top = `${top}px`;
         el.style.transformOrigin = "bottom center";
@@ -149,35 +187,45 @@ export const applyAllShrinks = (
         el.style.opacity = scale < 0.01 ? "0" : "1";
     };
 
-    // 5. Position 'Below' Stack (TIGHT - NO GAP)
-    let nextBelowTop = anchorTop + focusedHeight;
-    below.forEach((pageNum, idx) => {
-        const el = pages[pageNum - 1];
-        if (!el) return;
-        const scale = shrinkMapRef.current[pageNum] ?? 1;
-        applyBelow(el, nextBelowTop, scale, 100 - idx);
-        // No increment = purely overlapping at the same spot
+    // 5. Position 'Below' stacks — each focal group anchors to its own focal page
+    Object.entries(belowByFocal).forEach(([focalStr, group]) => {
+        const focalNum = parseInt(focalStr, 10);
+        const focalEl = pages[focalNum - 1];
+        if (!focalEl) return;
+        const fAnchorTop = focalEl.offsetTop;
+        const fHeight = focalEl.offsetHeight;
+        const sorted = [...group].sort((a, b) => a - b);
+        let nextTop = fAnchorTop + fHeight;
+        sorted.forEach((pageNum, idx) => {
+            const el = pages[pageNum - 1];
+            if (!el) return;
+            const scale = shrinkMapRef.current[pageNum] ?? 1;
+            applyBelow(el, nextTop, scale, 100 - idx);
+        });
     });
 
-    // 6. Position 'Above' Stack (TIGHT - NO GAP)
-    let nextAboveBottom = anchorTop;
-    above.forEach((pageNum, idx) => {
-        const el = pages[pageNum - 1];
-        if (!el) return;
-        const scale = shrinkMapRef.current[pageNum] ?? 1;
-        applyAbove(el, nextAboveBottom, scale, 100 - idx);
-        // No decrement
+    // 6. Position 'Above' stacks — each focal group anchors to its own focal page
+    Object.entries(aboveByFocal).forEach(([focalStr, group]) => {
+        const focalNum = parseInt(focalStr, 10);
+        const focalEl = pages[focalNum - 1];
+        if (!focalEl) return;
+        const fAnchorTop = focalEl.offsetTop;
+        const sorted = [...group].sort((a, b) => b - a);
+        let nextBottom = fAnchorTop;
+        sorted.forEach((pageNum, idx) => {
+            const el = pages[pageNum - 1];
+            if (!el) return;
+            const scale = shrinkMapRef.current[pageNum] ?? 1;
+            applyAbove(el, nextBottom, scale, 100 - idx);
+        });
     });
 
     // 7. Calculate Total Visual Height
-    // The height is the bottom of the focused page + the small bottom stack
-    let totalHeight = nextBelowTop;
+    const naturalHeight = contentContainer.offsetHeight;
+    let totalHeight = Math.max(anchorTop + focusedHeight, naturalHeight);
     if (below.length > 0) {
-        totalHeight += 20; // Room for bottom stack
+        totalHeight += 20; // Room for bottom stack indicator
     }
-
-    // Capture unscaled total height (divide by current zoom level if called from outside)
-    // But since we are inside, we return the logical pixels (unscaled by zoomLevel, scaled by page setup)
 
     // 8. Compensation for Scroll Jumps
     const newRect = focusedEl.getBoundingClientRect();
@@ -225,49 +273,21 @@ export const simulateShrinkExpand = (
 
     const round = (val) => Math.round(val * 10) / 10;
 
-    // A. Restore Logic (Opposite direction first)
-    if (isDown && shrunkAboveRef.current.length > 0) {
-        const lastIdx = shrunkAboveRef.current.length - 1;
-        const pageNum = shrunkAboveRef.current[lastIdx];
-        let currentScale = shrinkMapRef.current[pageNum] ?? MIN_SCALE;
-
-        currentScale = round(currentScale + SCALE_STEP);
-        if (currentScale >= 1) {
-            currentScale = 1;
-            shrunkAboveRef.current.pop();
-        }
-        shrinkMapRef.current[pageNum] = currentScale;
-        const totalHeight = applyAllShrinks(focused, container, pagesParent, shrinkMapRef, shrunkBelowRef, shrunkAboveRef);
-        if (setDynamicHeight) setDynamicHeight(totalHeight);
-        return;
-    }
-
-    if (!isDown && shrunkBelowRef.current.length > 0) {
-        const lastIdx = shrunkBelowRef.current.length - 1;
-        const pageNum = shrunkBelowRef.current[lastIdx];
-        let currentScale = shrinkMapRef.current[pageNum] ?? MIN_SCALE;
-
-        currentScale = round(currentScale + SCALE_STEP);
-        if (currentScale >= 1) {
-            currentScale = 1;
-            shrunkBelowRef.current.pop();
-        }
-        shrinkMapRef.current[pageNum] = currentScale;
-        const totalHeight = applyAllShrinks(focused, container, pagesParent, shrinkMapRef, shrunkBelowRef, shrunkAboveRef);
-        if (setDynamicHeight) setDynamicHeight(totalHeight);
-        return;
-    }
-
-    // B. Shrink Logic
+    // Shrink Logic
     if (isDown) {
-        // Find the page currently being shrunk below, or the next potential one
-        let targetPage = shrunkBelowRef.current[shrunkBelowRef.current.length - 1];
+        // Find the page currently being shrunk below for THIS focal point, or the next potential one
+        const lastBelowItem = shrunkBelowRef.current
+            .filter((item) => getFocal(item, focused) === focused)
+            .slice(-1)[0];
+        const lastBelowPage = lastBelowItem ? getPage(lastBelowItem) : null;
+
+        let targetPage = lastBelowPage;
         if (!targetPage || (shrinkMapRef.current[targetPage] ?? 1) <= MIN_SCALE) {
             // Find next unshrunk page
             for (let i = focused + 1; i <= total; i++) {
                 if ((shrinkMapRef.current[i] ?? 1) === 1) {
                     targetPage = i;
-                    shrunkBelowRef.current.push(i);
+                    shrunkBelowRef.current.push({ page: i, focal: focused });
                     break;
                 }
             }
@@ -282,13 +302,18 @@ export const simulateShrinkExpand = (
             if (setDynamicHeight) setDynamicHeight(totalHeight);
         }
     } else {
-        // find the page currently being shrunk above, or the next potential one
-        let targetPage = shrunkAboveRef.current[shrunkAboveRef.current.length - 1];
+        // Find the page currently being shrunk above for THIS focal point, or the next potential one
+        const lastAboveItem = shrunkAboveRef.current
+            .filter((item) => getFocal(item, focused) === focused)
+            .slice(-1)[0];
+        const lastAbovePage = lastAboveItem ? getPage(lastAboveItem) : null;
+
+        let targetPage = lastAbovePage;
         if (!targetPage || (shrinkMapRef.current[targetPage] ?? 1) <= MIN_SCALE) {
             for (let i = focused - 1; i >= 1; i--) {
                 if ((shrinkMapRef.current[i] ?? 1) === 1) {
                     targetPage = i;
-                    shrunkAboveRef.current.push(i);
+                    shrunkAboveRef.current.push({ page: i, focal: focused });
                     break;
                 }
             }
@@ -357,13 +382,23 @@ export const useShrinkExpand = (containerRef, contentRef = null) => {
         };
 
         const handleWheel = (e) => {
-            if (!e.shiftKey) return;
+            // Shift+scroll OR horizontal trackpad swipe triggers shrink/expand
+            const isHorizontalSwipe = !e.shiftKey && Math.abs(e.deltaX) > Math.abs(e.deltaY) && Math.abs(e.deltaX) > 5;
+            if (!e.shiftKey && !isHorizontalSwipe) return;
             e.preventDefault();
             if (wheelCooldown) return;
             wheelCooldown = true;
             setTimeout(() => (wheelCooldown = false), cooldownMs);
 
-            const isDown = e.deltaY > 0;
+            // On some trackpads Shift+scroll sends deltaX instead of deltaY — handle both
+            let isDown;
+            if (isHorizontalSwipe) {
+                isDown = e.deltaX > 0;
+            } else if (Math.abs(e.deltaY) >= Math.abs(e.deltaX)) {
+                isDown = e.deltaY > 0;
+            } else {
+                isDown = e.deltaX > 0;
+            }
             handleSimulateShrinkExpand(isDown);
         };
 
@@ -433,7 +468,9 @@ export const useShrinkExpand = (containerRef, contentRef = null) => {
             setShrinkStatus(null);
 
             // Reset clipping and margins on all pages
-            const pages = Array.from(contentContainer.children);
+            const pages = Array.from(contentContainer.children).filter(
+                el => el.dataset && el.dataset.pageNumber
+            );
             pages.forEach(pageEl => {
                 pageEl.style.clipPath = "";
                 pageEl.style.marginTop = "";
@@ -442,8 +479,9 @@ export const useShrinkExpand = (containerRef, contentRef = null) => {
 
             // We need to apply the reset visually
             const focused = getCurrentPageNum(container, contentContainer);
-            const totalHeight = applyAllShrinks(focused, container, contentContainer, shrinkMapRef, shrunkBelowRef, shrunkAboveRef);
-            if (setDynamicHeight) setDynamicHeight(totalHeight);
+            applyAllShrinks(focused, container, contentContainer, shrinkMapRef, shrunkBelowRef, shrunkAboveRef);
+            // Reset to 0 so PDFViewer falls back to pdfDimensions.height (full document height)
+            if (setDynamicHeight) setDynamicHeight(0);
         };
         container._expandAll = expandAll; // Exposure for hook return
 
@@ -505,7 +543,9 @@ export const useShrinkExpand = (containerRef, contentRef = null) => {
             const container = containerRef.current;
             const contentContainer = contentRef ? contentRef.current : container;
             if (contentContainer && (isStartObj || isEndObj)) {
-                const pages = Array.from(contentContainer.children);
+                const pages = Array.from(contentContainer.children).filter(
+                    el => el.dataset && el.dataset.pageNumber
+                );
 
                 // Clip first page (show bottom portion with highlight)
                 if (isStartObj && startPage === min) {

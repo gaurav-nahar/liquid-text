@@ -1,16 +1,63 @@
-from fastapi import APIRouter, Depends, HTTPException, Response, Query, Header
+import asyncio
+import base64
+import binascii
+import hashlib
+import io
+import logging
+import os
+import subprocess
+import tempfile
+import time
+from typing import Any, Dict, List, Optional
+
+import httpx
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from typing import List, Dict, Any, Optional
-import httpx
-import os
 from src.db.db import get_db
 from src.request.pdf_request import PdfCreate, PdfOut
 from src.repo.pdf_repo import PDFRepo
 from src.models.pdf_model import PDFFile
+from PIL import Image, ImageOps, ImageFilter
 
-NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY", "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")
-NVIDIA_API_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
+from src.cache.cache import cache_get, cache_set, cache_delete, cache_delete_pattern, get_redis
+
+logger = logging.getLogger(__name__)
+
+SUMMARY_SERVICE_URL = os.getenv("SUMMARY_SERVICE_URL", "http://127.0.0.1:8010/summarize")
+SUMMARY_SERVICE_TIMEOUT = float(os.getenv("SUMMARY_SERVICE_TIMEOUT", "240"))
+SUMMARY_CACHE_TTL_SECONDS = int(os.getenv("SUMMARY_CACHE_TTL_SECONDS", "1800"))
+
+# Redis-backed summary cache helpers
+# Keys: summary:result:{hash}  and  summary:job:{hash}
+# Falls back to in-memory dict when Redis is unavailable
+_MEM_RESULT: Dict[str, Dict[str, Any]] = {}
+_MEM_JOB: Dict[str, Dict[str, Any]] = {}
+
+def _summary_result_key(cache_key: str) -> str:
+    return f"summary:result:{cache_key}"
+
+def _summary_job_key(cache_key: str) -> str:
+    return f"summary:job:{cache_key}"
+
+def _get_result(cache_key: str) -> Dict[str, Any] | None:
+    val = cache_get(_summary_result_key(cache_key))
+    return val if val is not None else _MEM_RESULT.get(cache_key)
+
+def _set_result(cache_key: str, payload: Dict[str, Any]) -> None:
+    cache_set(_summary_result_key(cache_key), payload, ttl=SUMMARY_CACHE_TTL_SECONDS)
+    _MEM_RESULT[cache_key] = payload
+
+def _get_job(cache_key: str) -> Dict[str, Any] | None:
+    val = cache_get(_summary_job_key(cache_key))
+    return val if val is not None else _MEM_JOB.get(cache_key)
+
+def _set_job(cache_key: str, payload: Dict[str, Any]) -> None:
+    # Never store asyncio Task in Redis — strip it before serialising
+    serialisable = {k: v for k, v in payload.items() if k != "task"}
+    cache_set(_summary_job_key(cache_key), serialisable, ttl=SUMMARY_CACHE_TTL_SECONDS)
+    _MEM_JOB[cache_key] = payload  # keep full dict (with task) in local memory
 
 router = APIRouter()
 
@@ -29,7 +76,7 @@ async def proxy_pdf(pdf_url: str = Query(..., alias="url")):
         if not url.startswith(("http://", "https://")):
             raise HTTPException(status_code=400, detail="URL must start with http:// or https://")
         
-        print(f"[DEBUG] Proxy_pdf fetching from: {url}")
+        logger.debug(f"proxy_pdf: fetching {url}")
         
         async with httpx.AsyncClient(follow_redirects=True) as client:
             try:
@@ -40,23 +87,23 @@ async def proxy_pdf(pdf_url: str = Query(..., alias="url")):
                         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
                     }
                 )
-                print(f"[DEBUG] External site responded with status: {response.status_code}")
+                logger.debug(f"proxy_pdf: status {response.status_code}")
                 response.raise_for_status()
             except httpx.HTTPStatusError as e:
-                print(f"[ERROR] External site error: {e.response.status_code} for {url}")
+                logger.error(f"proxy_pdf: upstream error {e.response.status_code} for {url}")
                 raise HTTPException(
                     status_code=e.response.status_code, 
                     detail=f"External server error: {e.response.reason_phrase}"
                 )
             except httpx.RequestError as e:
-                print(f"[ERROR] Connection failed: {str(e)}")
+                logger.error(f"proxy_pdf: connection failed {e}")
                 raise HTTPException(status_code=502, detail=f"Cannot reach external server: {str(e)}")
             
             content_type = response.headers.get("content-type", "").lower()
-            print(f"[DEBUG] Received content_type: {content_type}, size: {len(response.content)} bytes")
+            logger.debug(f"proxy_pdf: content_type={content_type} size={len(response.content)}")
 
             if "pdf" not in content_type and not url.lower().endswith(".pdf"):
-                print(f"[WARNING] URL might not be a PDF: {content_type}")
+                logger.warning(f"proxy_pdf: URL may not be a PDF content_type={content_type}")
             
             return Response(
                 content=response.content,
@@ -66,79 +113,279 @@ async def proxy_pdf(pdf_url: str = Query(..., alias="url")):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[ERROR] Proxy_pdf failed: {str(e)}")
+        logger.error(f"proxy_pdf failed: {e}")
         raise HTTPException(status_code=500, detail=f"Error fetching PDF: {str(e)}")
 
 
 class SummarizeRequest(BaseModel):
     text: str
 
+
+class OcrSelectionRequest(BaseModel):
+    image_data: str
+    lang: str = "hin+eng"
+
+
+def normalize_ocr_text(value: str) -> str:
+    lines = []
+    for raw_line in value.splitlines():
+        line = " ".join(raw_line.split())
+        if line:
+            lines.append(line)
+    return "\n".join(lines).strip()
+
+
+def make_summary_cache_key(text: str) -> str:
+    normalized = " ".join(text.split())
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def prune_summary_cache() -> None:
+    # Redis handles TTL expiry automatically.
+    # Prune in-memory fallback dicts only.
+    now = time.time()
+    for d in (_MEM_RESULT, _MEM_JOB):
+        stale = [k for k, v in d.items() if now - v.get("updated_at", now) > SUMMARY_CACHE_TTL_SECONDS]
+        for k in stale:
+            d.pop(k, None)
+
+
+def extract_summary_error(exc: Exception) -> str:
+    if isinstance(exc, HTTPException):
+        return str(exc.detail)
+
+    if isinstance(exc, httpx.HTTPStatusError):
+        detail = None
+        try:
+            detail = exc.response.json().get("detail")
+        except Exception:
+            detail = exc.response.text
+        return f"Summary service error ({exc.response.status_code}): {detail or 'upstream failure'}"
+
+    if isinstance(exc, httpx.RequestError):
+        return f"Could not reach summary service: {str(exc)}"
+
+    return f"Summarization failed: {exc}"
+
+
+async def request_summary_from_service(text: str) -> str:
+    async with httpx.AsyncClient(timeout=SUMMARY_SERVICE_TIMEOUT) as client:
+        response = await client.post(
+            SUMMARY_SERVICE_URL,
+            json={"text": text},
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+        )
+        response.raise_for_status()
+        data = response.json()
+
+    summary = data.get("summary", "").strip()
+    if not summary:
+        raise HTTPException(status_code=502, detail="Summary service returned an empty summary")
+    return summary
+
+
+def get_summary_status_payload(cache_key: str) -> Dict[str, Any]:
+    prune_summary_cache()
+
+    cached = _get_result(cache_key)
+    if cached:
+        return {
+            "status": "completed",
+            "cache_key": cache_key,
+            "summary": cached["summary"],
+            "cached": True,
+            "updated_at": cached["updated_at"],
+        }
+
+    job = _get_job(cache_key)
+    if not job:
+        return {"status": "not_found", "cache_key": cache_key}
+
+    # Treat jobs stuck in "pending" beyond the service timeout as timed out
+    if job.get("status") == "pending":
+        age = time.time() - job.get("updated_at", time.time())
+        if age > SUMMARY_SERVICE_TIMEOUT + 60:
+            return {"status": "failed", "cache_key": cache_key, "error": "Summary job timed out"}
+
+    payload = {
+        "status": job.get("status", "pending"),
+        "cache_key": cache_key,
+        "updated_at": job.get("updated_at"),
+    }
+    if job.get("status") == "failed":
+        payload["error"] = job.get("error") or "Summary generation failed."
+    return payload
+
+
+async def run_summary_job(cache_key: str, text: str) -> None:
+    try:
+        summary = await request_summary_from_service(text)
+    except Exception as exc:
+        error_message = extract_summary_error(exc)
+        logger.exception("Summary job failed for cache_key=%s", cache_key)
+        _set_job(cache_key, {"status": "failed", "error": error_message, "updated_at": time.time()})
+        return
+
+    updated_at = time.time()
+    _set_result(cache_key, {"summary": summary, "updated_at": updated_at})
+    _set_job(cache_key, {"status": "completed", "updated_at": updated_at})
+
+
+def decode_image_data(image_data: str) -> bytes:
+    payload = image_data.strip()
+    if "," in payload and payload.startswith("data:"):
+        payload = payload.split(",", 1)[1]
+    try:
+        return base64.b64decode(payload)
+    except (ValueError, binascii.Error) as exc:
+        raise HTTPException(status_code=400, detail="Invalid image payload for OCR") from exc
+
+
+def preprocess_ocr_image(image_bytes: bytes) -> Image.Image:
+    try:
+        image = Image.open(io.BytesIO(image_bytes)).convert("L")
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="OCR image could not be opened") from exc
+
+    image = ImageOps.autocontrast(image)
+    if image.width < 1200:
+        scale = max(2, min(4, int(1200 / max(1, image.width))))
+        image = image.resize((image.width * scale, image.height * scale), Image.Resampling.LANCZOS)
+
+    image = image.filter(ImageFilter.SHARPEN)
+    return image
+
+
+def run_tesseract_ocr(image: Image.Image, lang: str) -> str:
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as temp_file:
+        temp_path = temp_file.name
+
+    try:
+        image.save(temp_path, format="PNG")
+        result = subprocess.run(
+            [
+                "tesseract",
+                temp_path,
+                "stdout",
+                "-l",
+                lang,
+                "--oem",
+                "1",
+                "--psm",
+                "6",
+                "-c",
+                "preserve_interword_spaces=1",
+            ],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+        )
+    finally:
+        try:
+            os.remove(temp_path)
+        except OSError:
+            pass
+
+    if result.returncode != 0:
+        raise HTTPException(status_code=500, detail=f"OCR failed: {result.stderr.strip() or 'tesseract error'}")
+
+    return normalize_ocr_text(result.stdout)
+
+
+@router.post("/ocr_selection")
+async def ocr_selection(request: Request, req: OcrSelectionRequest):
+    image_bytes = decode_image_data(req.image_data)
+    image = preprocess_ocr_image(image_bytes)
+    text = run_tesseract_ocr(image, req.lang or "hin+eng")
+    return {"text": text}
+
+@router.get("/summarize/status/{cache_key}")
+async def summarize_pdf_status(cache_key: str):
+    payload = get_summary_status_payload(cache_key)
+    if payload["status"] == "not_found":
+        raise HTTPException(status_code=404, detail="Summary job not found")
+    if payload["status"] == "pending":
+        return JSONResponse(status_code=202, content=payload)
+    return payload
+
+
+@router.delete("/summarize/cache/{cache_key}")
+async def clear_summary_cache(cache_key: str):
+    """Delete cached summary for a specific cache_key so the next request hits the GPU server fresh."""
+    cache_delete(_summary_result_key(cache_key))
+    cache_delete(_summary_job_key(cache_key))
+    _MEM_RESULT.pop(cache_key, None)
+    _MEM_JOB.pop(cache_key, None)
+    return {"status": "cleared", "cache_key": cache_key}
+
+
+@router.delete("/summarize/cache")
+async def clear_all_summary_cache():
+    """Delete ALL cached summaries so every next request hits the GPU server fresh."""
+    cache_delete_pattern("summary:result:*")
+    cache_delete_pattern("summary:job:*")
+    _MEM_RESULT.clear()
+    _MEM_JOB.clear()
+    return {"status": "all_cleared"}
+
+
 @router.post("/summarize")
-async def summarize_pdf(req: SummarizeRequest):
-    """Call NVIDIA Mistral API to summarize the PDF text."""
-    print(f"[DEBUG summarize] Received text length: {len(req.text)}, stripped: {len(req.text.strip())}")
+async def summarize_pdf(request: Request, req: SummarizeRequest, async_mode: bool = Query(False)):
+    """Forward PDF text to the self-hosted summary service."""
+    logger.debug(f"summarize: text_len={len(req.text)}")
     if not req.text.strip():
         raise HTTPException(status_code=400, detail="No text provided")
 
-    text = req.text[:24000]
-    print(f"[DEBUG summarize] Sending {len(text)} chars to AI")
+    cache_key = make_summary_cache_key(req.text)
+    cached_payload = get_summary_status_payload(cache_key)
+    if cached_payload["status"] == "completed":
+        cached_payload["cached"] = True
+        return cached_payload
 
-    prompt = (
-        "You are an expert legal document analyst. Analyze the following PDF text and extract information "
-        "in EXACTLY this structured format. Only include sections where information is found in the document. "
-        "Do NOT invent or assume any details not present in the text.\n\n"
-        "Use this format:\n\n"
-        "## 1. Party Details\n"
-        "- **Petitioner:** [name(s)]\n"
-        "- **Respondent:** [name(s)]\n"
-        "- **Petitioner's Advocate:** [name(s) or Not mentioned]\n"
-        "- **Respondent's Advocate:** [name(s) or Not mentioned]\n\n"
-        "## 2. Category / Acts & Sections\n"
-        "- **Court/Tribunal:** [name]\n"
-        "- **Case Number:** [number]\n"
-        "- **Acts Involved:** [list relevant Acts]\n"
-        "- **Sections:** [list relevant sections]\n\n"
-        "## 3. Facts of the Case\n"
-        "[Concise bullet-point summary of key facts]\n\n"
-        "## 4. Prayer / Relief Sought\n"
-        "[What relief the petitioner is asking for]\n\n"
-        "## 5. Judgement / Order\n"
-        "[Summary of the judgement or order, or 'Not available' if not present]\n\n"
-        "---\n"
-        f"PDF Content:\n{text}"
-    )
+    current_job = _get_job(cache_key)
+    if current_job and current_job.get("status") == "pending":
+        age = time.time() - current_job.get("updated_at", time.time())
+        if age <= SUMMARY_SERVICE_TIMEOUT + 60:
+            return JSONResponse(
+                status_code=202,
+                content={"status": "pending", "cache_key": cache_key, "message": "Summary generation already in progress."},
+            )
 
-    payload = {
-        "model": "mistralai/mistral-small-3.1-24b-instruct-2503",
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": 2048,
-        "temperature": 0.20,
-        "top_p": 0.70,
-        "stream": False,
-    }
-
-    headers = {
-        "Authorization": f"Bearer {NVIDIA_API_KEY}",
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-    }
+    if async_mode:
+        task = asyncio.create_task(run_summary_job(cache_key, req.text))
+        _set_job(cache_key, {"status": "pending", "updated_at": time.time(), "task": task})
+        return JSONResponse(
+            status_code=202,
+            content={
+                "status": "pending",
+                "cache_key": cache_key,
+                "message": "Summary generation started.",
+            },
+        )
 
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(NVIDIA_API_URL, json=payload, headers=headers)
-            response.raise_for_status()
-            data = response.json()
-            summary = data["choices"][0]["message"]["content"]
-            return {"summary": summary}
-    except httpx.HTTPStatusError as e:
-        raise HTTPException(status_code=502, detail=f"NVIDIA API error: {e.response.status_code}")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Summarization failed: {str(e)}")
+        summary = await request_summary_from_service(req.text)
+        updated_at = time.time()
+        _set_result(cache_key, {"summary": summary, "updated_at": updated_at})
+        _set_job(cache_key, {"status": "completed", "updated_at": updated_at})
+        return {
+            "status": "completed",
+            "cache_key": cache_key,
+            "summary": summary,
+            "cached": False,
+            "updated_at": updated_at,
+        }
+    except Exception as exc:
+        error_message = extract_summary_error(exc)
+        logger.exception("Synchronous summary request failed for cache_key=%s", cache_key)
+        raise HTTPException(status_code=502, detail=error_message) from exc
 
 
 @router.post("/open", response_model=PdfOut)
 def open_or_create_pdf(req: PdfCreate, db: Session = Depends(get_db)):
-    print(f"[DEBUG] Request: name={req.name}, path={req.path}")
+    logger.debug(f"open_pdf: name={req.name}")
 
     # Properly check existing PDF with both name and path
     pdf = (
@@ -149,12 +396,12 @@ def open_or_create_pdf(req: PdfCreate, db: Session = Depends(get_db)):
     )
 
     if pdf:
-        print(f"[DEBUG] Found existing PDF: id={pdf.id}, version={pdf.version}")
+        logger.debug(f"open_pdf: found existing id={pdf.id}")
         return pdf
 
-    print("[DEBUG] No existing PDF found, creating new PDF...")
+    logger.debug("open_pdf: creating new")
     new_pdf = PDFRepo.create(db, req)
-    print(f"[DEBUG] Created new PDF: id={new_pdf.id}, version={new_pdf.version}")
+    logger.debug(f"open_pdf: created id={new_pdf.id}")
     return new_pdf
 
 
@@ -225,7 +472,7 @@ def save_pdf_annotations(pdf_id: int, payload: PdfAnnotationsSave, db: Session =
     """
     Save PDF annotations with proper upsert logic and user isolation.
     """
-    print(f"[DEBUG] Saving Annotations for PDF ID: {pdf_id}, User ID: {x_user_id}")
+    logger.debug(f"save_annotations: pdf_id={pdf_id} user={x_user_id}")
     
     # ID Tracking
     id_map = {}
@@ -443,5 +690,5 @@ def save_pdf_annotations(pdf_id: int, payload: PdfAnnotationsSave, db: Session =
 
     except Exception as e:
         db.rollback()
-        print(f"[ERROR] Failed to save annotations: {e}")
+        logger.error(f"save_annotations failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))

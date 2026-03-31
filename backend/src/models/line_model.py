@@ -7,8 +7,8 @@ class Line(Base):
     __tablename__ = "lines"
 
     id = Column(Integer, primary_key=True, index=True)
-    pdf_id = Column(Integer, ForeignKey("pdf_files.id", ondelete="CASCADE"), nullable=False)
-    workspace_id = Column(Integer, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    pdf_id = Column(Integer, ForeignKey("pdf_files.id", ondelete="CASCADE"), nullable=False, index=True)
+    workspace_id = Column(Integer, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True)
     user_id = Column(String, index=True, nullable=False) # Mandatory for user isolation
     _points = Column("points", Text, nullable=False)  # Text column in DB
 

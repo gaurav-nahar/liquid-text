@@ -2,9 +2,11 @@ import axios from "axios";
 
     // export const BASE_URL = "https://beta.mphc.gov.in:8888/fast"; // Update this to your backend URL
 export const BASE_URL = process.env.REACT_APP_API_URL || "http://localhost:8000";
+const SUMMARY_TIMEOUT_MS = Number(process.env.REACT_APP_SUMMARY_TIMEOUT_MS || 300000);
 
 const api = axios.create({
     baseURL: BASE_URL,
+    timeout: 30000,
 });
 
 // Add interceptor to pick up user_id from URL if not already in headers
@@ -116,9 +118,27 @@ export const savePdfAnnotations = (pdfId, data) =>
 
 api.savePdfAnnotations = savePdfAnnotations;
 
+// 📄 DOCUMENTATION PAGES
+const listDocPages = (workspaceId) => api.get(`/documentation/workspace/${workspaceId}`);
+const createDocPage = (workspaceId, page) => api.post(`/documentation/workspace/${workspaceId}`, page);
+const updateDocPage = (docId, data) => api.put(`/documentation/${docId}`, data);
+const deleteDocPage = (docId) => api.delete(`/documentation/${docId}`);
+api.listDocPages = listDocPages;
+api.createDocPage = createDocPage;
+api.updateDocPage = updateDocPage;
+api.deleteDocPage = deleteDocPage;
+
 // 🟩 SUMMARIZE PDF
-const summarizePdf = (text) => api.post("/pdfs/summarize", { text });
+const summarizePdf = (text) => api.post("/pdfs/summarize", { text }, { timeout: SUMMARY_TIMEOUT_MS });
+const startPdfSummary = (text) => api.post("/pdfs/summarize?async_mode=true", { text }, { timeout: 15000 });
+const getPdfSummaryStatus = (cacheKey) => api.get(`/pdfs/summarize/status/${cacheKey}`, { timeout: 15000 });
 api.summarizePdf = summarizePdf;
+api.startPdfSummary = startPdfSummary;
+api.getPdfSummaryStatus = getPdfSummaryStatus;
+
+const ocrSelectionImage = (imageData, lang = "hin+eng") =>
+    api.post("/pdfs/ocr_selection", { image_data: imageData, lang });
+api.ocrSelectionImage = ocrSelectionImage;
 
 // 🔖 BOOKMARKS
 const listBookmarks = (pdfId) => api.get(`/bookmarks/pdf/${pdfId}`);
@@ -128,7 +148,7 @@ api.listBookmarks = listBookmarks;
 api.createBookmark = createBookmark;
 api.deleteBookmark = deleteBookmark;
 
-export { loadWorkspaceData, listWorkspaces, createWorkspace, summarizePdf };
+export { loadWorkspaceData, listWorkspaces, createWorkspace, summarizePdf, startPdfSummary, getPdfSummaryStatus };
 export default api;
 
 

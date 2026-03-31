@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useApp } from "../../context/AppContext";
+import { getCurrentTimestampName } from "../../utils/defaultNames";
 
 /**
  * 📚 WorkspaceSidebar: A premium sidebar to manage multiple research contexts.
@@ -25,11 +26,9 @@ const WorkspaceSidebar = () => {
     const onClose = () => setShowWorkspaceSidebar(false);
 
     const handleAdd = () => {
-        if (newWsName.trim()) {
-            handleAddWorkspace(newWsName.trim());
-            setNewWsName("");
-            setIsAdding(false);
-        }
+        handleAddWorkspace(newWsName.trim() || getCurrentTimestampName());
+        setNewWsName("");
+        setIsAdding(false);
     };
 
     return (
@@ -54,7 +53,10 @@ const WorkspaceSidebar = () => {
                     {!isAdding ? (
                         <button
                             className="add-ws-trigger"
-                            onClick={() => setIsAdding(true)}
+                            onClick={() => {
+                                setNewWsName(getCurrentTimestampName());
+                                setIsAdding(true);
+                            }}
                         >
                             <span className="plus-icon">+</span> New Workspace
                         </button>
@@ -63,13 +65,16 @@ const WorkspaceSidebar = () => {
                             <input
                                 autoFocus
                                 type="text"
-                                placeholder="Enter workspace name..."
+                                placeholder={getCurrentTimestampName()}
                                 value={newWsName}
                                 onChange={(e) => setNewWsName(e.target.value)}
                                 onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
                             />
                             <div className="form-actions">
-                                <button className="cancel-btn" onClick={() => setIsAdding(false)}>Cancel</button>
+                                <button className="cancel-btn" onClick={() => {
+                                    setIsAdding(false);
+                                    setNewWsName("");
+                                }}>Cancel</button>
                                 <button className="confirm-btn" onClick={handleAdd}>Create</button>
                             </div>
                         </div>

@@ -164,6 +164,8 @@ function handleLazyRendering(container, snippet, pdfDocument, duration, shouldSc
 
 /**
  * Creates and appends the visual highlight box.
+ * Appends directly to pageWrapper (position:relative) using canvas-relative coords,
+ * avoiding getBoundingClientRect / zoom-scale calculations that caused offset bugs.
  */
 function applySnippetHighlight(container, pageWrapper, snippet, duration) {
   if (snippet.isSearchMatch) return true; // Search highlights are handled by CSS/DOM elsewhere
@@ -171,18 +173,37 @@ function applySnippetHighlight(container, pageWrapper, snippet, duration) {
   const highlightId = `hl-${snippet.id || Date.now()}`;
   if (pageWrapper.querySelector(`[data-hl-id="${highlightId}"]`)) return true;
 
-  const metrics = getSnippetMetrics(container, pageWrapper, snippet);
-  if (!metrics) return false;
+  const canvas = pageWrapper.querySelector("canvas");
+  if (!canvas) return false;
 
-  const zoomWrapper = container.querySelector(".pdf-zoom-content") || container;
+  const xp = snippet.xPct ?? snippet.x_pct;
+  const yp = snippet.yPct ?? snippet.y_pct;
+  const wp = snippet.widthPct ?? snippet.width_pct;
+  const hp = snippet.heightPct ?? snippet.height_pct;
+
+  let left, top, width, height;
+  if (xp !== undefined) {
+    // Use canvas.offsetLeft/Top/Width/Height — layout coords, zoom-invariant
+    const cw = canvas.offsetWidth;
+    const ch = canvas.offsetHeight;
+    left   = canvas.offsetLeft + xp * cw;
+    top    = canvas.offsetTop  + yp * ch;
+    width  = (wp ?? 0.1) * cw;
+    height = (hp ?? 0.05) * ch;
+  } else {
+    left   = snippet.x || 0;
+    top    = snippet.y || 0;
+    width  = snippet.width || 80;
+    height = snippet.height || 30;
+  }
+
   const highlight = document.createElement("div");
-
   Object.assign(highlight.style, {
     position: "absolute",
-    left: `${metrics.left}px`,
-    top: `${metrics.top}px`,
-    width: `${metrics.width}px`,
-    height: `${metrics.height}px`,
+    left: `${left}px`,
+    top: `${top}px`,
+    width: `${width}px`,
+    height: `${height}px`,
     background: "rgba(255, 255, 0, 0.4)",
     border: "2px solid orange",
     borderRadius: "4px",
@@ -193,7 +214,8 @@ function applySnippetHighlight(container, pageWrapper, snippet, duration) {
 
   highlight.className = "pdf-highlight pdf-highlight-active";
   highlight.dataset.hlId = highlightId;
-  zoomWrapper.appendChild(highlight);
+  // Append to pageWrapper (position:relative) so coordinates are page-relative
+  pageWrapper.appendChild(highlight);
 
   setTimeout(() => (highlight.style.opacity = 0), duration);
   setTimeout(() => highlight.remove(), duration + 500);
@@ -265,42 +287,6 @@ function performScroll(container, minY, maxY) {
   });
 }
 
-function getSnippetMetrics(container, pageWrapper, snippet) {
-  const canvas = pageWrapper.querySelector("canvas");
-  if (!canvas) return null;
-
-  const zoomScale = getZoomScale(container);
-  const canvasRect = canvas.getBoundingClientRect();
-  const wrapperRect = pageWrapper.getBoundingClientRect();
-
-  const offsetX = (canvasRect.left - wrapperRect.left) / zoomScale;
-  const offsetY = (canvasRect.top - wrapperRect.top) / zoomScale;
-
-  const xp = snippet.xPct ?? snippet.x_pct;
-  const yp = snippet.yPct ?? snippet.y_pct;
-  const wp = snippet.widthPct ?? snippet.width_pct;
-  const hp = snippet.heightPct ?? snippet.height_pct;
-
-  let boxX, boxY, boxW, boxH;
-  if (xp !== undefined) {
-    boxX = xp * (canvasRect.width / zoomScale);
-    boxY = yp * (canvasRect.height / zoomScale);
-    boxW = (wp ?? 0.1) * (canvasRect.width / zoomScale);
-    boxH = (hp ?? 0.05) * (canvasRect.height / zoomScale);
-  } else {
-    boxX = snippet.x || 0;
-    boxY = snippet.y || 0;
-    boxW = snippet.width || 80;
-    boxH = snippet.height || 30;
-  }
-
-  return {
-    left: pageWrapper.offsetLeft + offsetX + boxX,
-    top: pageWrapper.offsetTop + offsetY + boxY,
-    width: boxW,
-    height: boxH
-  };
-}
 
 function dispatchRenderEvent(pageWrapper) {
   window.dispatchEvent(new CustomEvent('page-rendered-by-scroll', { //handlePageRenderedByScroll in usepdfrender.js

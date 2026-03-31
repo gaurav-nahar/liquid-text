@@ -5,8 +5,8 @@ from src.db.db import Base
 class Snippet(Base):
     __tablename__ = "snippets"
     id = Column(Integer, primary_key=True, index=True)
-    pdf_id = Column(Integer, ForeignKey("pdf_files.id", ondelete="CASCADE"), nullable=False)
-    workspace_id = Column(Integer, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    pdf_id = Column(Integer, ForeignKey("pdf_files.id", ondelete="CASCADE"), nullable=False, index=True)
+    workspace_id = Column(Integer, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True)
     user_id = Column(String, index=True, nullable=False) # Mandatory for user isolation
     content = Column(Text, nullable=True)   # text content or image metadata (JSON string for images)
     file_data = Column(LargeBinary, nullable=True)  # raw image binary data

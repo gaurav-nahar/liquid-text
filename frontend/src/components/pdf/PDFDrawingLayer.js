@@ -8,7 +8,7 @@ const isNear = (x1, y1, x2, y2, zoomLevel = 1, threshold = 15) => {
 };
 
 const PDFDrawingLayer = memo(({ pageNum, width, height, tool, selectedColor, zoomLevel = 1, isResizing = false }) => {
-    const { pdfLines: lines, setPdfLines: setLines, setIsDirty } = useApp();
+    const { pdfLines: lines, setPdfLines: setLines, setIsDirty, hoveredAnnotationId } = useApp();
     const isDrawing = useRef(false);
     const [activeLine, setActiveLine] = React.useState(null); // Local active line
 
@@ -21,27 +21,24 @@ const PDFDrawingLayer = memo(({ pageNum, width, height, tool, selectedColor, zoo
         const stage = e.target.getStage();
         const rect = stage.container().getBoundingClientRect();
 
-        let clientX, clientY;
-        if (e.evt.touches && e.evt.touches.length > 0) {
-            clientX = e.evt.touches[0].clientX;
-            clientY = e.evt.touches[0].clientY;
-        } else if (e.evt.clientX !== undefined) {
-            clientX = e.evt.clientX;
-            clientY = e.evt.clientY;
-        } else {
-            // Fallback to Konva's pointer position if evt is not helpful
-            const pos = stage.getPointerPosition();
-            return pos ? { x: pos.x, y: pos.y } : { x: 0, y: 0 };
+        // Pointer events always carry clientX/Y (mouse, touch, and pen/stylus)
+        if (e.evt.clientX !== undefined) {
+            return {
+                x: (e.evt.clientX - rect.left) / zoomLevel,
+                y: (e.evt.clientY - rect.top) / zoomLevel
+            };
         }
 
-        return {
-            x: (clientX - rect.left) / zoomLevel,
-            y: (clientY - rect.top) / zoomLevel
-        };
+        // Final fallback: Konva's internal pointer position
+        const pos = stage.getPointerPosition();
+        return pos ? { x: pos.x / zoomLevel, y: pos.y / zoomLevel } : { x: 0, y: 0 };
     };
 
     const handlePointerDown = (e) => {
         if (tool !== "pen" && tool !== "eraser") return;
+
+        // 👆 Finger touch passes through so user can scroll PDF while drawing with pen
+        if (e.evt?.pointerType === 'touch') return;
 
         // 🛡️ Prevent selection interference
         if (e.evt) {
@@ -66,6 +63,7 @@ const PDFDrawingLayer = memo(({ pageNum, width, height, tool, selectedColor, zoo
 
     const handlePointerMove = (e) => {
         if (!isDrawing.current || (tool !== "pen" && tool !== "eraser")) return;
+        if (e.evt?.pointerType === 'touch') return; // Touch scrolls PDF, pen draws
 
         // 🛡️ Prevent selection interference
         if (e.evt) {
@@ -126,28 +124,32 @@ const PDFDrawingLayer = memo(({ pageNum, width, height, tool, selectedColor, zoo
             <Stage
                 width={Math.max(1, width)}
                 height={Math.max(1, height)}
-                onMouseDown={handlePointerDown}
-                onMouseMove={handlePointerMove}
-                onMouseUp={handlePointerUp}
-                onTouchStart={handlePointerDown}
-                onTouchMove={handlePointerMove}
-                onTouchEnd={handlePointerUp}
+                onPointerDown={handlePointerDown}
+                onPointerMove={handlePointerMove}
+                onPointerUp={handlePointerUp}
             >
                 <Layer>
-                    {pageLines.map((line) => (
-                        <Line
-                            key={line.id}
-                            points={line.points}
-                            stroke={line.color}
-                            strokeWidth={line.width}
-                            tension={0.5}
-                            lineCap="round"
-                            lineJoin="round"
-                            globalCompositeOperation={
-                                line.tool === "eraser" ? "destination-out" : "source-over"
-                            }
-                        />
-                    ))}
+                    {pageLines.map((line) => {
+                        const isHovered = line.id === hoveredAnnotationId;
+                        return (
+                            <Line
+                                key={line.id}
+                                points={line.points}
+                                stroke={line.color}
+                                strokeWidth={isHovered ? (line.width + 2) : line.width}
+                                tension={0.5}
+                                lineCap="round"
+                                lineJoin="round"
+                                globalCompositeOperation={
+                                    line.tool === "eraser" ? "destination-out" : "source-over"
+                                }
+                                shadowColor={isHovered ? (line.color || "#007aff") : undefined}
+                                shadowBlur={isHovered ? 18 : 0}
+                                shadowEnabled={isHovered}
+                                opacity={isHovered ? 1 : 0.95}
+                            />
+                        );
+                    })}
                     {activeLine && (
                         <Line
                             points={activeLine.points}

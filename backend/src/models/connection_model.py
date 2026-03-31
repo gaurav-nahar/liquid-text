@@ -6,8 +6,8 @@ class Connection(Base):
     __tablename__ = "connections"
 
     id = Column(Integer, primary_key=True, index=True)
-    pdf_id = Column(Integer, ForeignKey("pdf_files.id", ondelete="CASCADE"), nullable=False)
-    workspace_id = Column(Integer, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    pdf_id = Column(Integer, ForeignKey("pdf_files.id", ondelete="CASCADE"), nullable=False, index=True)
+    workspace_id = Column(Integer, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True)
     user_id = Column(String, index=True, nullable=False) # Mandatory for user isolation
     source_id = Column(BigInteger, nullable=False)   # changed here
     target_id = Column(BigInteger, nullable=False)   # changed here
