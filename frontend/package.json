@@ -2,7 +2,7 @@
   "name": "frontend",
   "version": "0.1.0",
   "private": true,
-  "homepage": "/react/",
+  "homepage": ".",
   "dependencies": {
     "@lexical/code": "^0.42.0",
     "@lexical/history": "^0.42.0",
@@ -22,12 +22,10 @@
     "jsonwebtoken": "^9.0.3",
     "konva": "^10.2.0",
     "lexical": "^0.42.0",
-    "next": "^16.1.6",
-    "npm": "^11.6.2",
     "pdfjs-dist": "^2.16.105",
-    "react": "^19.2.4",
-    "react-dom": "^19.2.4",
-    "react-konva": "^19.2.3",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-konva": "^18.2.10",
     "react-pdf": "^10.4.1",
     "react-rnd": "^10.5.3",
     "react-scripts": "^5.0.1",
@@ -37,7 +35,7 @@
     "web-vitals": "^2.1.4"
   },
   "scripts": {
-    "start": "PORT=3333 react-scripts start",
+    "start": "HOST=0.0.0.0 PORT=3000 react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject"

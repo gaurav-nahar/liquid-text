@@ -4,25 +4,21 @@ const fs = require("fs");
 const path = require("path");
 
 const app = express();
-const PORT = 8000;
+const PORT = 3000;
 const HOST = "0.0.0.0";
 
-// SSL configuration
 const httpsOptions = {
-  key: fs.readFileSync(path.join(__dirname, "ssl", "key.pem")),
-  cert: fs.readFileSync(path.join(__dirname, "ssl", "cert.pem")),
+  key: fs.readFileSync(path.join(__dirname, "ssl", "backend.key")),
+  cert: fs.readFileSync(path.join(__dirname, "ssl", "backend.crt")),
+
 };
 
-// Serve static files
 app.use(express.static(path.join(__dirname, "build")));
 
-// SPA fallback (NO wildcard route)
 app.use((req, res) => {
   res.sendFile(path.join(__dirname, "build", "index.html"));
 });
 
-// Start HTTPS server
 https.createServer(httpsOptions, app).listen(PORT, HOST, () => {
-  console.log("🚀 HTTPS server running at:");
-  console.log(`👉 https://${HOST}:${PORT}`);
+  console.log(`Frontend HTTPS server running at https://${HOST}:${PORT}`);
 });

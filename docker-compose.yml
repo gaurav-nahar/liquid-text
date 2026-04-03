@@ -9,7 +9,8 @@ services:
       POSTGRES_PASSWORD: 123456GN
       POSTGRES_DB: liquidtext
     ports:
-      - "5432:5432"
+    - "5433:5432"
+
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
@@ -35,8 +36,9 @@ services:
       SUMMARY_SERVICE_URL: "http://host.docker.internal:8010/summarize"
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    volumes:
+      - ./ssl:/app/ssl
     command: sh -c "sleep 10 && gunicorn main:app --workers 4 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000 --timeout 120 --keep-alive 5"
-    
 
   frontend:
     build: ./frontend
@@ -45,6 +47,8 @@ services:
       - backend
     ports:
       - "3001:3000"
+    volumes:
+    - ./ssl:/app/ssl
 
 volumes:
   postgres_data:

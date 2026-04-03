@@ -31,7 +31,7 @@ from src.models.workspace_group_model import WorkspaceGroup  # noqa: ensure tabl
 from src.routers.documentation_router import router as documentation_router
 from src.models.documentation_model import DocumentationPage  # noqa: ensure table is registered
 # NOTE: create_all disabled for production. Run migrations manually before deploying.
-# Base.metadata.create_all(bind=engine)
+Base.metadata.create_all(bind=engine)
 
 # FastAPI app
 app = FastAPI(title="Workspace Backend")
@@ -55,6 +55,19 @@ app.add_middleware(
         "https://172.25.0.41:3333",
         # Backend itself (self-referential)
         "http://localhost:8000",
+               # GPU server
+        "http://172.25.0.235:3000",
+        "http://172.25.0.235:3001",
+        "http://172.25.0.235:3333",
+        "https://172.25.0.235:3000",
+        "https://172.25.0.235:3001",
+        "https://172.25.0.235:3333",
+        "https://172.25.0.235:3001",
+        "https://172.25.0.235:3001/",
+        "http://172.25.0.235:3001/",
+        "http://172.25.0.235:8005/",
+        "https://172.25.0.235:3001/",
+
     ],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
