@@ -14,12 +14,13 @@ export const getPdfProxyUrl = (sourceUrl) => {
     ) {
         return normalized;
     }
-    if (normalized.startsWith(`${BASE_URL}/pdfs/proxy_pdf?`)) {
+    // Build the proxy base by appending to BASE_URL (not using new URL("/path", base)
+    // which strips BASE_URL's path when the path starts with "/").
+    const proxyBase = `${BASE_URL}/pdfs/proxy_pdf`;
+    if (normalized.startsWith(`${proxyBase}?`)) {
         return normalized;
     }
-    const proxyUrl = new URL("/pdfs/proxy_pdf", BASE_URL);
-    proxyUrl.searchParams.set("url", normalized);
-    return proxyUrl.toString();
+    return `${proxyBase}?url=${encodeURIComponent(normalized)}`;
 };
 
 const getCaseContextFromLocation = () => {

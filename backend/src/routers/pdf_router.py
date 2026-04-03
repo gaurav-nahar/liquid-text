@@ -103,9 +103,14 @@ async def proxy_pdf(pdf_url: str = Query(..., alias="url")):
             content_type = response.headers.get("content-type", "").lower()
             logger.debug(f"proxy_pdf: content_type={content_type} size={len(response.content)}")
 
-            if "pdf" not in content_type and not url.lower().endswith(".pdf"):
-                logger.warning(f"proxy_pdf: URL may not be a PDF content_type={content_type}")
-            
+            # Validate that response is actually a PDF (must start with %PDF-)
+            if not response.content.startswith(b"%PDF-"):
+                logger.error(f"proxy_pdf: URL did not return a PDF. content_type={content_type} url={url}")
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"The URL did not return a valid PDF file. Got content-type: {content_type}"
+                )
+
             return Response(
                 content=response.content,
                 media_type="application/pdf"

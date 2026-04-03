@@ -202,6 +202,12 @@ function AppInner({ children }) {
             throw new Error("Received empty PDF file");
         }
 
+        // Validate PDF magic bytes before creating blob URL
+        const header = await blob.slice(0, 5).text();
+        if (!header.startsWith("%PDF-")) {
+            throw new Error(`URL does not point to a valid PDF file: ${normalized}`);
+        }
+
         const objectUrl = URL.createObjectURL(blob);
         cache.set(normalized, objectUrl);
         return objectUrl;
@@ -399,7 +405,10 @@ function AppInner({ children }) {
                 nextPdfId = openRes.data.id;
             }
 
-            const resolvedUrl = existingTab?.url || await cachePdfBlobUrl(selectedPdf.url);
+            const resolvedUrl = existingTab?.url || await cachePdfBlobUrl(selectedPdf.url).catch(err => {
+            console.error(`[openCasePdf] Failed to load PDF from URL "${selectedPdf.url}":`, err);
+            throw err;
+        });
 
             let caseWsId = caseSessionRef.current.workspaceId;
             if (!sameCase) {
