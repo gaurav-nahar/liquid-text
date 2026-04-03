@@ -4,16 +4,55 @@ import axios from "axios";
 export const BASE_URL = process.env.REACT_APP_API_URL || "http://localhost:8000";
 const SUMMARY_TIMEOUT_MS = Number(process.env.REACT_APP_SUMMARY_TIMEOUT_MS || 300000);
 
+export const getPdfProxyUrl = (sourceUrl) => {
+    const normalized = (sourceUrl || "").trim();
+    if (!normalized) return "";
+    if (
+        normalized.startsWith("blob:") ||
+        normalized.startsWith("data:") ||
+        normalized.startsWith("file:")
+    ) {
+        return normalized;
+    }
+    if (normalized.startsWith(`${BASE_URL}/pdfs/proxy_pdf?`)) {
+        return normalized;
+    }
+    const proxyUrl = new URL("/pdfs/proxy_pdf", BASE_URL);
+    proxyUrl.searchParams.set("url", normalized);
+    return proxyUrl.toString();
+};
+
+const getCaseContextFromLocation = () => {
+    const params = new URLSearchParams(window.location.search);
+    const diaryNo = (params.get("diary_no") || "").trim();
+    const diaryYear = (params.get("diary_year") || "").trim();
+    const establishment = (params.get("establishment") || "").trim();
+    const hasCaseContext = Boolean(diaryNo || diaryYear || establishment);
+    const scopedUserId = hasCaseContext
+        ? `diary_no=${diaryNo}|diary_year=${diaryYear}|establishment=${establishment}`
+        : (params.get("user_id") || params.get("uid") || "user123");
+
+    return {
+        diaryNo,
+        diaryYear,
+        establishment,
+        hasCaseContext,
+        scopedUserId,
+    };
+};
+
 const api = axios.create({
     baseURL: BASE_URL,
     timeout: 30000,
 });
 
-// Add interceptor to pick up user_id from URL if not already in headers
+// Add interceptor to scope requests either by explicit user or by iframe-passed case fields.
 api.interceptors.request.use((config) => {
-    const params = new URLSearchParams(window.location.search);
-    const userId = params.get("user_id") || params.get("uid") || "user123"; // default to user123 for dev
-    config.headers["X-User-ID"] = userId;
+    const { diaryNo, diaryYear, establishment, scopedUserId } = getCaseContextFromLocation();
+    config.headers["X-User-ID"] = scopedUserId;
+    if (diaryNo) config.headers["X-Diary-No"] = diaryNo;
+    if (diaryYear) config.headers["X-Diary-Year"] = diaryYear;
+    if (establishment) config.headers["X-Establishment"] = establishment;
     return config;
 });
 
@@ -88,6 +127,22 @@ api.loadPdfAnnotations = loadPdfAnnotations;
 // 📂 WORKSPACE MANAGEMENT
 const listWorkspaces = (pdfId) => api.get(`/workspace/list/${pdfId}`);
 const createWorkspace = (pdfId, name) => api.post(`/workspace/create/${pdfId}?name=${encodeURIComponent(name)}`);
+
+// 📂 CASE WORKSPACE — find or create the single workspace for a diary case (uses X-Diary-No/Year headers)
+const getCaseWorkspace = () => api.get('/workspace/case');
+api.getCaseWorkspace = getCaseWorkspace;
+
+// 📂 WORKSPACE PDFs — persistent list of PDFs associated with a workspace
+const listWorkspacePdfs = (workspaceId) => api.get(`/workspace/${workspaceId}/pdfs`);
+api.listWorkspacePdfs = listWorkspacePdfs;
+
+const registerPdfInWorkspace = (workspaceId, pdfId, pdfName, pdfUrl) => {
+    const params = new URLSearchParams({ pdf_id: pdfId });
+    if (pdfName) params.set('pdf_name', pdfName);
+    if (pdfUrl) params.set('pdf_url', pdfUrl);
+    return api.post(`/workspace/${workspaceId}/pdfs?${params.toString()}`);
+};
+api.registerPdfInWorkspace = registerPdfInWorkspace;
 
 const openPdf = (name, path) => api.post("/pdfs/open", { name, path });
 

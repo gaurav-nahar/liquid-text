@@ -1,13 +1,15 @@
 from sqlalchemy.orm import Session
 from src.models.line_model import Line
+from src.utils.case_context import apply_case_context_to_dict, apply_case_context_to_model
 
 class LineRepo:
 
     @staticmethod
-    def create(db: Session, pdf_id: int, workspace_id: int, data, user_id: str):
+    def create(db: Session, pdf_id: int, workspace_id: int, data, user_id: str, case_context: dict | None = None):
         # Create Line instance without points first
         line_data = data.dict(exclude={"points"})
         line_data["user_id"] = user_id
+        apply_case_context_to_dict(line_data, case_context or {})
         line = Line(**line_data)
         # Use the property setter to correctly serialize points
         line.points = data.points  # setter will json.dumps internally
@@ -33,7 +35,7 @@ class LineRepo:
         ).all()
 
     @staticmethod
-    def update(db: Session, line_id: int, data, user_id: str):
+    def update(db: Session, line_id: int, data, user_id: str, case_context: dict | None = None):
         line = db.query(Line).filter(Line.id == line_id, Line.user_id == user_id).first()
         if not line:
             return None
@@ -45,6 +47,7 @@ class LineRepo:
 
         for key, value in update_data.items():
             setattr(line, key, value)
+        apply_case_context_to_model(line, case_context or {})
 
         db.commit()
         db.refresh(line)

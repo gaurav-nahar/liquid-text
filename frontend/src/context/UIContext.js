@@ -51,6 +51,9 @@ export const UIProvider = ({ children }) => {
     const [pdfTabs, setPdfTabs] = useState([]);
     const [activeTabId, setActiveTabId] = useState(null);
 
+    // Case PDF list — persistent list of PDFs for the current diary case (populated from backend)
+    const [casePdfList, setCasePdfList] = useState([]);
+
     // Secondary PDFs (side-by-side)
     const [secondaryPdfs, setSecondaryPdfs] = useState([]);
 
@@ -176,6 +179,7 @@ export const UIProvider = ({ children }) => {
         showBookmarks, setShowBookmarks,
         pdfTabs, setPdfTabs,
         activeTabId, setActiveTabId,
+        casePdfList, setCasePdfList,
         secondaryPdfs, addSecondaryPdf, removeSecondaryPdf,
         panel2TabId, panel2PdfId, panel2PdfUrl, panel2PdfName,
         setPanel2TabId, setPanel2PdfId, setPanel2PdfUrl, setPanel2PdfName,
@@ -191,7 +195,7 @@ export const UIProvider = ({ children }) => {
         tool, loading, userId, autosaveInterval, zoomLevel, pdfRenderScale, pdfPanelWidth, isResizing,
         pdfDrawingColor, highlightBrushColor, showThumbnails, showPageJump, showHighlightsList,
         hoveredAnnotationId,
-        showWorkspaceSidebar, showBookmarks, pdfTabs, activeTabId, secondaryPdfs,
+        showWorkspaceSidebar, showBookmarks, pdfTabs, activeTabId, casePdfList, secondaryPdfs,
         panel2TabId, panel2PdfId, panel2PdfUrl, panel2PdfName,
         crossPdfLinks, pendingCrossLink, lastCreatedCrossLinkId, dragWire,
         startDragWire, moveDragWire, cancelDragWire, startCrossLink,

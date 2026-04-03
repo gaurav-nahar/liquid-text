@@ -8,6 +8,7 @@ from src.cache.cache import (
     cache_get, cache_set, cache_delete,
     key_cross_pdf_links, key_workspace_groups
 )
+from src.utils.case_context import build_case_context, apply_case_context_to_model
 
 logger = logging.getLogger(__name__)
 # Repository Imports
@@ -64,6 +65,28 @@ def extract_index_and_key(path: str):
     key = parts[2].split("]")[0]
     return idx, key
 
+
+def resolve_request_user_id(
+    x_user_id: Optional[str],
+    x_diary_no: Optional[str],
+    x_diary_year: Optional[str],
+    x_establishment: Optional[str],
+) -> str:
+    if x_user_id:
+        return x_user_id
+    return (
+        f"diary_no={(x_diary_no or '').strip()}"
+        f"|diary_year={(x_diary_year or '').strip()}"
+        f"|establishment={(x_establishment or '1').strip()}"
+    )
+
+
+def assert_workspace_access(ws: Workspace, request_user_id: str) -> None:
+    if ws.user_id in (request_user_id, "legacy_user"):
+        return
+    logger.warning("Workspace access denied: workspace.user_id=%s request_user_id=%s", ws.user_id, request_user_id)
+    raise HTTPException(status_code=403, detail="Not authorized to access this workspace")
+
 # ----------------------------
 # SAVE WORKSPACE ENDPOINT
 # ----------------------------
@@ -72,25 +95,43 @@ async def list_workspaces(pdf_id: int, db: Session = Depends(get_db), x_user_id:
     return WorkspaceRepo.get_by_pdf(db, pdf_id, user_id=x_user_id)
 # ➕ Naya workspace create karne ke liye
 @router.post("/create/{pdf_id}")
-async def create_workspace(pdf_id: int, name: str, db: Session = Depends(get_db), x_user_id: Optional[str] = Header(None)):
-    return WorkspaceRepo.create(db, pdf_id, name, user_id=x_user_id)
+async def create_workspace(
+    pdf_id: int,
+    name: str,
+    db: Session = Depends(get_db),
+    x_user_id: Optional[str] = Header(None),
+    x_diary_no: Optional[str] = Header(None),
+    x_diary_year: Optional[str] = Header(None),
+    x_establishment: Optional[str] = Header(None),
+):
+    case_context = build_case_context(x_diary_no, x_diary_year, x_establishment)
+    request_user_id = resolve_request_user_id(x_user_id, x_diary_no, x_diary_year, x_establishment)
+    normalized_pdf_id = None if pdf_id <= 0 and any(case_context.values()) else pdf_id
+    return WorkspaceRepo.create(db, normalized_pdf_id, name, user_id=request_user_id, case_context=case_context)
 
 @router.post("/save/{pdf_id}/{workspace_id}")
-async def save_workspace(pdf_id: int, workspace_id: int, request: Request, db: Session = Depends(get_db), x_user_id: Optional[str] = Header(None)):
+async def save_workspace(
+    pdf_id: int,
+    workspace_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    x_user_id: Optional[str] = Header(None),
+    x_diary_no: Optional[str] = Header(None),
+    x_diary_year: Optional[str] = Header(None),
+    x_establishment: Optional[str] = Header(None),
+):
     logger.debug(f"save_workspace: pdf_id={pdf_id}, workspace_id={workspace_id}, user={x_user_id}")
+    case_context = build_case_context(x_diary_no, x_diary_year, x_establishment)
+    request_user_id = resolve_request_user_id(x_user_id, x_diary_no, x_diary_year, x_establishment)
     # Verify workspace belongs to user
     ws = db.query(Workspace).filter(Workspace.id == workspace_id).first()
     if not ws:
         raise HTTPException(status_code=404, detail="Workspace not found")
 
-    if x_user_id:
-        if ws.user_id != x_user_id and ws.user_id != 'legacy_user':
-            logger.warning(f"Auth mismatch: workspace.user_id={ws.user_id}, x_user_id={x_user_id}")
-            raise HTTPException(status_code=403, detail=f"Not authorized to access this workspace (Owned by {ws.user_id})")
-        
-        # If it was legacy, claim it or just proceed
-        if ws.user_id == 'legacy_user':
-            logger.info(f"User {x_user_id} accessing legacy workspace {workspace_id}")
+    assert_workspace_access(ws, request_user_id)
+    if ws.user_id == 'legacy_user':
+        logger.info(f"User {request_user_id} accessing legacy workspace {workspace_id}")
+    apply_case_context_to_model(ws, case_context)
 
     form = await request.form()
     
@@ -166,7 +207,7 @@ async def save_workspace(pdf_id: int, workspace_id: int, request: Request, db: S
 
         if db_id > 0:
             # TRY UPDATE
-            existing = SnippetRepo.update(db, db_id, update_data, user_id=x_user_id, file_binary=file_binary)
+            existing = SnippetRepo.update(db, db_id, update_data, user_id=request_user_id, file_binary=file_binary, case_context=case_context)
             if existing:
                 s_id = get_obj_id(existing)
                 touched_snippet_ids.append(s_id)
@@ -191,8 +232,9 @@ async def save_workspace(pdf_id: int, workspace_id: int, request: Request, db: S
         )
         new_snippet = SnippetRepo.create(
             db, pdf_id, workspace_id, req, 
-            user_id=x_user_id, 
-            file_binary=file_binary
+            user_id=request_user_id, 
+            file_binary=file_binary,
+            case_context=case_context,
         )
         new_id = get_obj_id(new_snippet)
         touched_snippet_ids.append(new_id)
@@ -206,14 +248,14 @@ async def save_workspace(pdf_id: int, workspace_id: int, request: Request, db: S
         db_id = safe_int(frontend_id)
 
         if db_id > 0:
-            existing = BoxRepo.update(db, db_id, BoxUpdate(**b_dict), user_id=x_user_id)
+            existing = BoxRepo.update(db, db_id, BoxUpdate(**b_dict), user_id=request_user_id, case_context=case_context)
             if existing:
                 b_id = get_obj_id(existing)
                 touched_box_ids.append(b_id)
                 id_map[str(frontend_id)] = b_id
                 continue
 
-        new_box = BoxRepo.create(db, pdf_id, workspace_id, BoxCreate(**b_dict), user_id=x_user_id)
+        new_box = BoxRepo.create(db, pdf_id, workspace_id, BoxCreate(**b_dict), user_id=request_user_id, case_context=case_context)
         nb_id = get_obj_id(new_box)
         touched_box_ids.append(nb_id)
         if frontend_id: id_map[str(frontend_id)] = nb_id
@@ -232,14 +274,14 @@ async def save_workspace(pdf_id: int, workspace_id: int, request: Request, db: S
         db_id = safe_int(frontend_id)
 
         if db_id > 0:
-            existing = LineRepo.update(db, db_id, LineUpdate(**l_dict), user_id=x_user_id)
+            existing = LineRepo.update(db, db_id, LineUpdate(**l_dict), user_id=request_user_id, case_context=case_context)
             if existing:
                 new_id = get_obj_id(existing)
                 touched_line_ids.append(new_id)
                 if frontend_id: id_map[str(frontend_id)] = new_id
                 continue
                 
-        new_line = LineRepo.create(db, pdf_id, workspace_id, LineCreate(**l_dict), user_id=x_user_id)
+        new_line = LineRepo.create(db, pdf_id, workspace_id, LineCreate(**l_dict), user_id=request_user_id, case_context=case_context)
         new_id = get_obj_id(new_line)
         touched_line_ids.append(new_id)
         if frontend_id: id_map[str(frontend_id)] = new_id
@@ -257,23 +299,23 @@ async def save_workspace(pdf_id: int, workspace_id: int, request: Request, db: S
             c_dict["source_id"], c_dict["target_id"] = src_id, tgt_id
             db_id = safe_int(frontend_id)
             if db_id > 0:
-                existing = ConnectionRepo.update(db, db_id, ConnectionUpdate(**c_dict), user_id=x_user_id)
+                existing = ConnectionRepo.update(db, db_id, ConnectionUpdate(**c_dict), user_id=request_user_id, case_context=case_context)
                 if existing:
                     conn_id = get_obj_id(existing)
                     touched_connection_ids.append(conn_id)
                     if frontend_id: id_map[str(frontend_id)] = conn_id
                     continue
             
-            new_conn = ConnectionRepo.create(db, pdf_id, workspace_id, ConnectionCreate(**c_dict), user_id=x_user_id)
+            new_conn = ConnectionRepo.create(db, pdf_id, workspace_id, ConnectionCreate(**c_dict), user_id=request_user_id, case_context=case_context)
             nc_id = get_obj_id(new_conn)
             touched_connection_ids.append(nc_id)
             if frontend_id: id_map[str(frontend_id)] = nc_id
 
     # 7. DELETE ORPHANS
-    db.query(Snippet).filter(Snippet.workspace_id == workspace_id, Snippet.user_id == x_user_id, ~Snippet.id.in_(touched_snippet_ids)).delete(synchronize_session=False)
-    db.query(Box).filter(Box.workspace_id == workspace_id, Box.user_id == x_user_id, ~Box.id.in_(touched_box_ids)).delete(synchronize_session=False)
-    db.query(Line).filter(Line.workspace_id == workspace_id, Line.user_id == x_user_id, ~Line.id.in_(touched_line_ids)).delete(synchronize_session=False)
-    db.query(Connection).filter(Connection.workspace_id == workspace_id, Connection.user_id == x_user_id, ~Connection.id.in_(touched_connection_ids)).delete(synchronize_session=False)
+    db.query(Snippet).filter(Snippet.workspace_id == workspace_id, Snippet.user_id == request_user_id, ~Snippet.id.in_(touched_snippet_ids)).delete(synchronize_session=False)
+    db.query(Box).filter(Box.workspace_id == workspace_id, Box.user_id == request_user_id, ~Box.id.in_(touched_box_ids)).delete(synchronize_session=False)
+    db.query(Line).filter(Line.workspace_id == workspace_id, Line.user_id == request_user_id, ~Line.id.in_(touched_line_ids)).delete(synchronize_session=False)
+    db.query(Connection).filter(Connection.workspace_id == workspace_id, Connection.user_id == request_user_id, ~Connection.id.in_(touched_connection_ids)).delete(synchronize_session=False)
 
     # 8. UPSERT GROUPS
     touched_group_client_ids = []
@@ -345,7 +387,7 @@ async def save_workspace(pdf_id: int, workspace_id: int, request: Request, db: S
     ws.cross_pdf_links_json = json.dumps(normalized_cross_links)
 
     db.commit()
-    logger.info(f"Workspace {workspace_id} saved for user {x_user_id}")
+    logger.info(f"Workspace {workspace_id} saved for user {request_user_id}")
     # Invalidate caches for this workspace
     cache_delete(key_cross_pdf_links(workspace_id))
     cache_delete(key_workspace_groups(workspace_id))
@@ -372,6 +414,102 @@ def get_cross_pdf_links(workspace_id: int, db: Session = Depends(get_db), x_user
         return result
     except Exception:
         return []
+
+
+@router.get("/case")
+def get_or_create_case_workspace(
+    db: Session = Depends(get_db),
+    x_user_id: Optional[str] = Header(None),
+    x_diary_no: Optional[str] = Header(None),
+    x_diary_year: Optional[str] = Header(None),
+    x_establishment: Optional[str] = Header(None),
+):
+    """Get or create the single shared workspace for a diary case."""
+    diary_no = (x_diary_no or "").strip() or None
+    diary_year = (x_diary_year or "").strip() or None
+    establishment = (x_establishment or "").strip() or "1"
+    user_id = x_user_id or f"diary_no={diary_no}|diary_year={diary_year}|establishment={establishment}"
+    ws = WorkspaceRepo.get_or_create_for_case(db, diary_no, diary_year, establishment, user_id)
+    return {
+        "id": ws.id,
+        "name": ws.name,
+        "pdf_id": ws.pdf_id,
+        "user_id": ws.user_id,
+        "diary_no": ws.diary_no,
+        "diary_year": ws.diary_year,
+        "establishment": ws.establishment,
+        "cross_pdf_links_json": ws.cross_pdf_links_json,
+        "created_at": ws.created_at,
+        "updated_at": ws.updated_at,
+    }
+
+
+@router.get("/{workspace_id}/pdfs")
+def list_workspace_pdfs(
+    workspace_id: int,
+    db: Session = Depends(get_db),
+    x_user_id: Optional[str] = Header(None),
+    x_diary_no: Optional[str] = Header(None),
+    x_diary_year: Optional[str] = Header(None),
+    x_establishment: Optional[str] = Header(None),
+):
+    """List all PDFs registered with a workspace."""
+    from src.models.workspace_pdf_model import WorkspacePdf
+    request_user_id = resolve_request_user_id(x_user_id, x_diary_no, x_diary_year, x_establishment)
+    ws = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+    if not ws:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    assert_workspace_access(ws, request_user_id)
+    items = db.query(WorkspacePdf).filter(WorkspacePdf.workspace_id == workspace_id).all()
+    return [
+        {
+            "id": item.id,
+            "workspace_id": item.workspace_id,
+            "pdf_id": item.pdf_id,
+            "pdf_name": item.pdf_name,
+            "pdf_url": item.pdf_url,
+            "created_at": item.created_at,
+        }
+        for item in items
+    ]
+
+
+@router.post("/{workspace_id}/pdfs")
+def add_pdf_to_workspace(
+    workspace_id: int,
+    pdf_id: int,
+    pdf_name: Optional[str] = None,
+    pdf_url: Optional[str] = None,
+    db: Session = Depends(get_db),
+    x_user_id: Optional[str] = Header(None),
+    x_diary_no: Optional[str] = Header(None),
+    x_diary_year: Optional[str] = Header(None),
+    x_establishment: Optional[str] = Header(None),
+):
+    """Register a PDF with a workspace (upsert)."""
+    from src.models.workspace_pdf_model import WorkspacePdf
+    request_user_id = resolve_request_user_id(x_user_id, x_diary_no, x_diary_year, x_establishment)
+    ws = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+    if not ws:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    assert_workspace_access(ws, request_user_id)
+    existing = db.query(WorkspacePdf).filter(
+        WorkspacePdf.workspace_id == workspace_id,
+        WorkspacePdf.pdf_id == pdf_id,
+    ).first()
+    if existing:
+        if pdf_name is not None:
+            existing.pdf_name = pdf_name
+        if pdf_url is not None:
+            existing.pdf_url = pdf_url
+        db.commit()
+        db.refresh(existing)
+        return {"id": existing.id, "workspace_id": existing.workspace_id, "pdf_id": existing.pdf_id, "pdf_name": existing.pdf_name, "pdf_url": existing.pdf_url}
+    item = WorkspacePdf(workspace_id=workspace_id, pdf_id=pdf_id, pdf_name=pdf_name, pdf_url=pdf_url)
+    db.add(item)
+    db.commit()
+    db.refresh(item)
+    return {"id": item.id, "workspace_id": item.workspace_id, "pdf_id": item.pdf_id, "pdf_name": item.pdf_name, "pdf_url": item.pdf_url}
 
 
 @router.get("/groups/{workspace_id}")

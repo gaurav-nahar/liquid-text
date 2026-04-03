@@ -5,9 +5,16 @@ import { useState, useEffect, useCallback } from "react";
  * - Default: only anchor dots are visible (dots on both ends of each line)
  * - Click a dot: line appears + PDF scrolls to show the other anchor
  * - Click elsewhere: line hides again
+ * - externalActiveId: activates a line from outside (e.g. sidebar click)
  */
-const PDFConnectionLines = ({ lines = [], drawingLine = null, getAnchorScreenPos, containerRef }) => {
+const PDFConnectionLines = ({ lines = [], drawingLine = null, getAnchorScreenPos, containerRef, externalActiveId = null }) => {
     const [activeLineId, setActiveLineId] = useState(null);
+
+    // Sync external activation (sidebar click)
+    useEffect(() => {
+        if (!externalActiveId) return;
+        setActiveLineId(externalActiveId);
+    }, [externalActiveId]);
     const [, setTick] = useState(0);
 
     // Re-render when PDF scrolls so dots track page positions
@@ -80,31 +87,33 @@ const PDFConnectionLines = ({ lines = [], drawingLine = null, getAnchorScreenPos
                         {/* Line — only visible when active */}
                         {isActive && (
                             <>
+                                {/* Shadow */}
                                 <line
                                     x1={from.x} y1={from.y} x2={to.x} y2={to.y}
-                                    stroke="rgba(0,0,0,0.2)" strokeWidth={5} strokeLinecap="round"
+                                    stroke="rgba(0,0,0,0.15)" strokeWidth={7} strokeLinecap="round"
                                 />
+                                {/* Main line */}
                                 <line
                                     x1={from.x} y1={from.y} x2={to.x} y2={to.y}
-                                    stroke={c} strokeWidth={2} strokeLinecap="round"
+                                    stroke={c} strokeWidth={3} strokeLinecap="round"
                                 />
                             </>
                         )}
 
                         {/* FROM dot — always visible, clickable */}
                         <circle
-                            cx={from.x} cy={from.y} r={isActive ? 7 : 5}
+                            cx={from.x} cy={from.y} r={isActive ? 9 : 5}
                             fill={c} opacity={isActive ? 1 : 0.75}
-                            stroke="white" strokeWidth={1.5}
+                            stroke="white" strokeWidth={2}
                             style={{ pointerEvents: "auto", cursor: "pointer" }}
                             onMouseDown={(e) => handleDotClick(e, line, line.to)}
                         />
 
                         {/* TO dot — always visible, clickable */}
                         <circle
-                            cx={to.x} cy={to.y} r={isActive ? 7 : 5}
+                            cx={to.x} cy={to.y} r={isActive ? 9 : 5}
                             fill={c} opacity={isActive ? 1 : 0.75}
-                            stroke="white" strokeWidth={1.5}
+                            stroke="white" strokeWidth={2}
                             style={{ pointerEvents: "auto", cursor: "pointer" }}
                             onMouseDown={(e) => handleDotClick(e, line, line.from)}
                         />
@@ -112,13 +121,19 @@ const PDFConnectionLines = ({ lines = [], drawingLine = null, getAnchorScreenPos
                         {/* Page number badge on dots when active */}
                         {isActive && (
                             <>
-                                <text x={from.x + 9} y={from.y - 6} fontSize="11" fill={c}
+                                {/* FROM label background pill */}
+                                <rect x={from.x + 12} y={from.y - 18} width={52} height={18} rx={4}
+                                    fill={c} style={{ pointerEvents: "none" }} />
+                                <text x={from.x + 16} y={from.y - 5} fontSize="12" fill="white"
                                     fontWeight="bold" style={{ pointerEvents: "none" }}>
-                                    p{line.from.pageNum}
+                                    Page {line.from.pageNum}
                                 </text>
-                                <text x={to.x + 9} y={to.y - 6} fontSize="11" fill={c}
+                                {/* TO label background pill */}
+                                <rect x={to.x + 12} y={to.y - 18} width={52} height={18} rx={4}
+                                    fill={c} style={{ pointerEvents: "none" }} />
+                                <text x={to.x + 16} y={to.y - 5} fontSize="12" fill="white"
                                     fontWeight="bold" style={{ pointerEvents: "none" }}>
-                                    p{line.to.pageNum}
+                                    Page {line.to.pageNum}
                                 </text>
                             </>
                         )}

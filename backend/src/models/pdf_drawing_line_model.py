@@ -9,6 +9,9 @@ class PdfDrawingLine(Base):
     id = Column(Integer, primary_key=True, index=True)
     pdf_id = Column(Integer, ForeignKey("pdf_files.id", ondelete="CASCADE"), nullable=False, index=True)
     user_id = Column(String, index=True, nullable=False) # Mandatory for user isolation
+    diary_no = Column(String, nullable=True, index=True)
+    diary_year = Column(String, nullable=True, index=True)
+    establishment = Column(String, nullable=True, index=True)
     page_num = Column(Integer, nullable=False)
     _points = Column("points", Text, nullable=False)
 

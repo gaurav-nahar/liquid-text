@@ -78,7 +78,7 @@ function NewWorkspaceBtn({ onAdd }) {
                     placeholder={getCurrentTimestampName()}
                     style={{ fontSize: 12, padding: "2px 6px", borderRadius: 6, border: "1px solid #aaa", width: 120 }}
                 />
-                <button type="submit" style={{ fontSize: 12, padding: "2px 8px", borderRadius: 6, border: "none", background: "#007bff", color: "white", cursor: "pointer" }}>Add</button>
+                <button type="submit" onMouseDown={e => e.preventDefault()} style={{ fontSize: 12, padding: "2px 8px", borderRadius: 6, border: "none", background: "#007bff", color: "white", cursor: "pointer" }}>Add</button>
             </form>
         );
     }
@@ -216,7 +216,18 @@ export default function App() {
         panel2TabId, panel2PdfId, panel2PdfUrl, panel2PdfName,
         openInPanel2, closePanel2,
         isDirty,
+        casePdfList,
+        openCasePdf,
     } = useApp();
+
+    // Detect case context from URL
+    const caseContextParams = (() => {
+        const params = new URLSearchParams(window.location.search);
+        const diaryNo = (params.get("diary_no") || "").trim();
+        const diaryYear = (params.get("diary_year") || "").trim();
+        const establishment = (params.get("establishment") || "1").trim();
+        return { diaryNo, diaryYear, establishment, hasCaseContext: Boolean(diaryNo || diaryYear) };
+    })();
 
     // Warn user before closing tab if there are unsaved changes
     useEffect(() => {
@@ -318,7 +329,95 @@ export default function App() {
                     >
                         <span className="context-label" style={{ paddingLeft: '16px', flexShrink: 0 }}>Files:</span>
                         <div className="workspace-tabs-scroll" style={{ paddingLeft: 0, gap: 2 }}>
-                            {pdfTabs.map(tab => (
+                            {caseContextParams.hasCaseContext ? (
+                                // Case context mode: show persistent case PDF list
+                                casePdfList.map((item, idx) => {
+                                    const openTab = pdfTabs.find(t => t.pdfId === item.pdf_id);
+                                    const isActive = openTab && openTab.tabId === activeTabId;
+                                    const color = openTab?.color || "#9ca3af";
+                                    const canUsePanel2 = Boolean(openTab) && pdfTabs.length > 1;
+                                    const isOpenInPanel2 = openTab && panel2TabId === openTab.tabId;
+                                    return (
+                                        <div
+                                            key={item.pdf_id || idx}
+                                            className={`workspace-tab-item ${isActive ? 'active' : ''}`}
+                                            onClick={() => {
+                                                if (openTab) {
+                                                    switchPdfTab(openTab);
+                                                    return;
+                                                }
+                                                openCasePdf({
+                                                    diaryNo: caseContextParams.diaryNo,
+                                                    diaryYear: caseContextParams.diaryYear,
+                                                    establishment: caseContextParams.establishment,
+                                                    selectedPdf: { url: item.pdf_url, name: item.pdf_name, originalPath: item.pdf_url },
+                                                });
+                                            }}
+                                            title={item.pdf_name}
+                                            style={{
+                                                marginTop: 6, display: "flex", alignItems: "center", gap: 5,
+                                                paddingRight: 6, maxWidth: 220, cursor: "pointer",
+                                                background: isActive ? "#e8f4ff" : "transparent",
+                                                borderRadius: 6,
+                                            }}
+                                        >
+                                            <div style={{
+                                                width: 8, height: 8, borderRadius: "50%", flexShrink: 0,
+                                                background: color,
+                                                boxShadow: isActive ? `0 0 0 2px ${color}44` : "none",
+                                            }} />
+                                            <span className="tab-name" style={{
+                                                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                                                fontWeight: isActive ? 600 : 400,
+                                                color: isActive ? (color === "#9ca3af" ? "#0057c8" : color) : "#374151",
+                                                fontSize: 12,
+                                            }}>{item.pdf_name || "document.pdf"}</span>
+                                            {canUsePanel2 && (
+                                                <button
+                                                    onClick={e => {
+                                                        e.stopPropagation();
+                                                        if (isOpenInPanel2) {
+                                                            closePanel2();
+                                                        } else {
+                                                            openInPanel2(openTab);
+                                                        }
+                                                    }}
+                                                    title={isOpenInPanel2 ? "Close right panel" : "Open in right panel (side-by-side)"}
+                                                    style={{
+                                                        border: "none", background: "none", cursor: "pointer",
+                                                        color: isOpenInPanel2 ? color : "#9ca3af",
+                                                        fontSize: 11, lineHeight: 1, padding: "0 2px", flexShrink: 0,
+                                                        fontWeight: 700,
+                                                    }}
+                                                    onMouseEnter={e => e.currentTarget.style.color = color}
+                                                    onMouseLeave={e => e.currentTarget.style.color = isOpenInPanel2 ? color : "#9ca3af"}
+                                                >⊞</button>
+                                            )}
+                                            {openTab && (
+                                                <button
+                                                    onClick={e => {
+                                                        e.stopPropagation();
+                                                        if (panel2TabId === openTab.tabId) {
+                                                            closePanel2();
+                                                        }
+                                                        closePdfTab(openTab.tabId);
+                                                    }}
+                                                    title="Close this PDF"
+                                                    style={{
+                                                        border: "none", background: "none", cursor: "pointer",
+                                                        color: "#9ca3af", fontSize: 14, lineHeight: 1,
+                                                        padding: "0 2px", flexShrink: 0,
+                                                    }}
+                                                    onMouseEnter={e => e.currentTarget.style.color = "#ef4444"}
+                                                    onMouseLeave={e => e.currentTarget.style.color = "#9ca3af"}
+                                                >×</button>
+                                            )}
+                                        </div>
+                                    );
+                                })
+                            ) : (
+                                // Normal mode: show open tabs
+                                pdfTabs.map(tab => (
                                 <div
                                     key={tab.tabId}
                                     className={`workspace-tab-item ${tab.tabId === activeTabId ? 'active' : ''}`}
@@ -377,7 +476,8 @@ export default function App() {
                                         >×</button>
                                     )}
                                 </div>
-                            ))}
+                            ))
+                            )}
                             <button
                                 onClick={() => setShowOpenModal(true)}
                                 title="Open PDF in new tab"

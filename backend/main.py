@@ -28,6 +28,7 @@ from src.routers.pdf_brush_highlight_router import router as pdf_brush_highlight
 from src.routers.bookmark_router import router as bookmark_router
 from src.models.bookmark_model import Bookmark  # noqa: ensure table is registered
 from src.models.workspace_group_model import WorkspaceGroup  # noqa: ensure table is registered
+from src.models.workspace_pdf_model import WorkspacePdf  # noqa: ensure table is registered
 from src.routers.documentation_router import router as documentation_router
 from src.models.documentation_model import DocumentationPage  # noqa: ensure table is registered
 # NOTE: create_all disabled for production. Run migrations manually before deploying.
@@ -48,8 +49,10 @@ app.add_middleware(
         "http://localhost:3000",
         "http://localhost:3001",
         "http://localhost:3333",
+        "http://localhost:8090",
         "http://127.0.0.1:3000",
         "http://127.0.0.1:3333",
+        "http://127.0.0.1:8090",
         # HTTPS local (for SSL dev setups)
         "https://localhost:3333",
         "https://172.25.0.41:3333",
@@ -67,11 +70,20 @@ app.add_middleware(
         "http://172.25.0.235:3001/",
         "http://172.25.0.235:8005/",
         "https://172.25.0.235:3001/",
+        "https://103.200.78.51",
 
     ],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", "Authorization", "X-User-ID", "Accept"],
+    allow_headers=[
+        "Content-Type",
+        "Authorization",
+        "X-User-ID",
+        "X-Diary-No",
+        "X-Diary-Year",
+        "X-Establishment",
+        "Accept",
+    ],
 )
 
 # Include routers

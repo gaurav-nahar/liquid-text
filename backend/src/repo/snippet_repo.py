@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session
 from src.models.snippet_model import Snippet
 from src.request.snippet_request import SnippetCreate, SnippetUpdate
+from src.utils.case_context import apply_case_context_to_model
 
 # ------------------ HELPER FUNCTIONS ------------------
 def safe_float(value, default=0.0):
@@ -25,7 +26,7 @@ class SnippetRepo:
     # CREATE SNIPPET (TEXT OR IMAGE BINARY)
     # ----------------------------------------------------
     @staticmethod
-    def create(db: Session, pdf_id: int, workspace_id: int, req: SnippetCreate, user_id: str, file_binary: bytes = None):
+    def create(db: Session, pdf_id: int, workspace_id: int, req: SnippetCreate, user_id: str, file_binary: bytes = None, case_context: dict | None = None):
         # ... numeric conversions ...
         req.x = safe_float(req.x)
         # ... (skipping some lines for brevity in match, but replacement will be full)
@@ -58,6 +59,7 @@ class SnippetRepo:
             width_pct=req.width_pct,
             height_pct=req.height_pct
         )
+        apply_case_context_to_model(db_snippet, case_context or {})
         db.add(db_snippet)
         db.commit()
         db.refresh(db_snippet)
@@ -82,7 +84,7 @@ class SnippetRepo:
     # UPDATE SNIPPET (TEXT FIELDS + OPTIONAL FILE BINARY)
     # ----------------------------------------------------
     @staticmethod
-    def update(db: Session, snippet_id: int, update_data: dict, user_id: str, file_binary: bytes = None):
+    def update(db: Session, snippet_id: int, update_data: dict, user_id: str, file_binary: bytes = None, case_context: dict | None = None):
         snippet = db.query(Snippet).filter(Snippet.id == snippet_id, Snippet.user_id == user_id).first()
         if not snippet:
             return None
@@ -105,6 +107,7 @@ class SnippetRepo:
         # Update file binary data if provided (only for image snippets)
         if file_binary is not None and snippet.type == "image":
             snippet.file_data = file_binary
+        apply_case_context_to_model(snippet, case_context or {})
 
         db.commit()
         db.refresh(snippet)

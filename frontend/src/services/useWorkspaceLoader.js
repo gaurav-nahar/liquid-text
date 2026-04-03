@@ -227,7 +227,7 @@ const useWorkspaceLoader = (context) => {
 
         loadWorkspace();
         return () => (mounted = false);
-    }, [activeWorkspace]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [activeWorkspace, pdfId]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // EFFECT 2: Reload PDF-level annotations when user switches PDF tab
     // (activeWorkspace unchanged, only pdfId changes)

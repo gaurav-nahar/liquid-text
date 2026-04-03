@@ -9,6 +9,9 @@ class Connection(Base):
     pdf_id = Column(Integer, ForeignKey("pdf_files.id", ondelete="CASCADE"), nullable=False, index=True)
     workspace_id = Column(Integer, ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False, index=True)
     user_id = Column(String, index=True, nullable=False) # Mandatory for user isolation
+    diary_no = Column(String, nullable=True, index=True)
+    diary_year = Column(String, nullable=True, index=True)
+    establishment = Column(String, nullable=True, index=True)
     source_id = Column(BigInteger, nullable=False)   # changed here
     target_id = Column(BigInteger, nullable=False)   # changed here
     meta = Column(Text, nullable=True)

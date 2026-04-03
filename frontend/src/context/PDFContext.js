@@ -14,6 +14,7 @@ export const PDFProvider = ({ children }) => {
     const [brushHighlights, setBrushHighlights] = useState([]);
     const [pdfConnectionLines, setPdfConnectionLines] = useState([]);
     const [drawingLine, setDrawingLine] = useState(null);
+    const [activePdfConnId, setActivePdfConnId] = useState(null);
 
     // Pending deletes (sent to backend on save)
     const [deletedHighlights, setDeletedHighlights] = useState([]);
@@ -68,6 +69,7 @@ export const PDFProvider = ({ children }) => {
         brushHighlights, setBrushHighlights,
         pdfConnectionLines, setPdfConnectionLines,
         drawingLine, setDrawingLine,
+        activePdfConnId, setActivePdfConnId,
         deletedHighlights, setDeletedHighlights,
         deletedPdfTexts, setDeletedPdfTexts,
         bookmarks, setBookmarks,
@@ -81,7 +83,7 @@ export const PDFProvider = ({ children }) => {
         allAnnotations,
     }), [
         selectedPDF, pdfName,
-        highlights, pdfAnnotations, pdfLines, brushHighlights, pdfConnectionLines, drawingLine,
+        highlights, pdfAnnotations, pdfLines, brushHighlights, pdfConnectionLines, drawingLine, activePdfConnId,
         deletedHighlights, deletedPdfTexts, bookmarks,
         searchText, searchMatches, currentMatchIndex,
         showSummary, summary, summaryLoading, savingPdf,

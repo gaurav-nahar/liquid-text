@@ -1,67 +1,201 @@
+# LiquidText Clone
 
-### 💻 Frontend (React)
-
-#### **Commands:**
-```bash
-cd frontend
-npm install react react-dom axios konva react-konva react-rnd uuid react-pdf pdfjs-dist use-image web-vitals
-npm start
-```
-*Runs on: http://localhost:3000*
-
-#### **Core Libraries Used:**
-- **`react` & `react-dom` (v19)**: Core UI framework.
-- **`pdfjs-dist`**: The engine for rendering PDF pages and extracting text.
-- **`konva` & `react-konva`**: Used for the interactive workspace canvas (drawing lines, handles, etc.).
-- **`axios`**: For communicating with the Backend API.
-- **`react-rnd`**: Handles the dragging and resizing of the "Editable Text Boxes".
-- **`uuid`**: Generates unique IDs for snippets and connections.
-- **`react-pdf`**: Additional PDF helper components.
+A full-stack web application replicating core LiquidText features — interactive PDF reading, text extraction, snippet creation, a freehand drawing workspace, and AI-powered summarization.
 
 ---
 
-###  Backend (FastAPI)
+## Tech Stack
 
+| Layer | Technology |
+|-------|------------|
+| Frontend | React 19, Konva/React-Konva, Lexical, pdfjs-dist, react-rnd |
+| Backend | FastAPI, SQLAlchemy, Uvicorn/Gunicorn |
+| Database | PostgreSQL 16 |
+| Cache | Redis 7 |
+| Containerization | Docker + Docker Compose |
 
-#### **Commands:**
+---
+
+## Project Structure
+
+```
+liquid-text/
+├── frontend/          # React application (port 3001 in Docker, 3333 locally)
+├── backend/           # FastAPI application (port 8005 in Docker, 8000 locally)
+├── summary/           # AI summarization service
+├── docker-compose.yml
+└── README.md
+```
+
+---
+
+## Running with Docker (Recommended)
+
+### Prerequisites
+- [Docker](https://docs.docker.com/get-docker/) installed
+- [Docker Compose](https://docs.docker.com/compose/install/) installed (included with Docker Desktop)
+
+### Steps
+
+**1. Clone the repository and navigate to the project root:**
+```bash
+git clone <repo-url>
+cd liquid-text
+```
+
+**2. Build and start all services:**
+```bash
+docker compose up --build
+```
+
+To run in the background (detached mode):
+```bash
+docker compose up --build -d
+```
+
+**3. Access the app:**
+
+| Service | URL |
+|---------|-----|
+| Frontend | http://localhost:3001 |
+| Backend API | http://localhost:8005 |
+| API Docs (Swagger) | http://localhost:8005/docs |
+| PostgreSQL | localhost:5432 |
+| Redis | localhost:6379 |
+
+### Useful Docker Commands
+
+```bash
+# View running containers
+docker compose ps
+
+# View logs (all services)
+docker compose logs -f
+
+# View logs for a specific service
+docker compose logs -f backend
+docker compose logs -f frontend
+
+# Stop all containers
+docker compose down
+
+# Stop and remove volumes (resets the database)
+docker compose down -v
+
+# Rebuild a single service after code changes
+docker compose up --build backend
+docker compose up --build frontend
+```
+
+---
+
+## Running Locally (Without Docker)
+
+### Prerequisites
+- Node.js 18+
+- Python 3.11+
+- PostgreSQL 16 running locally
+- Redis running locally
+
+---
+
+### 1. Database Setup
+
+Create the database in PostgreSQL:
+```sql
+CREATE DATABASE liquidtext;
+```
+
+---
+
+### 2. Backend (FastAPI)
+
+```bash
 cd backend
 
-# 1. Setup Virtual Environment
+# Create and activate virtual environment
 python -m venv venv
-venv\Scripts\activate  # Windows
-# source venv/bin/activate # Mac/Linux
+source venv/bin/activate        # Mac/Linux
+# venv\Scripts\activate         # Windows
 
-# 2. Install Libraries
-pip install fastapi uvicorn sqlalchemy psycopg2-binary python-dotenv yoyo-migrations
+# Install dependencies
+pip install -r requirements.txt
 
+# Configure environment
+cp .env.example .env
+# Edit .env and set your DATABASE_URL:
+# DATABASE_URL=postgresql://postgres:YOUR_PASSWORD@localhost:5432/liquidtext
+# REDIS_URL=redis://localhost:6379/0
 
-# 3. Run Server
+# Run database migrations
+yoyo apply --database postgresql://postgres:YOUR_PASSWORD@localhost/liquidtext ./src/yoyo
+
+# Start the server
 uvicorn main:app --reload
 ```
-*Runs on: http://localhost:8000*
 
-#### **Core Libraries Used:**
-- **`fastapi`**: Modern, high-performance web framework for the API.
-- **`uvicorn`**: The ASGI server implementation to run FastAPI.
-- **`sqlalchemy`**: The ORM used to interact with the database using Python objects.
-- **`psycopg2-binary`**: PostgreSQL adapter for Python.
-- **`python-dotenv`**: For managing secret environment variables (like DB URLs).
-- **`yoyo-migrations`**: Database migration tool to manage schema changes.
+Backend runs at: http://localhost:8000
+API docs at: http://localhost:8000/docs
 
 ---
 
-## 🛢️ Database Configuration
-The system uses **PostgreSQL**. You must have a database named `liquidtext` created in your local PG Admin / Postgres server.
+### 3. Frontend (React)
 
-Edit the **`backend/.env`** file to match your credentials:
-```env
-DATABASE_URL=postgresql://USERNAME:PASSWORD@localhost:5432/liquidtext
+```bash
+cd frontend
+
+# Install dependencies
+npm install
+
+# Start development server
+npm start
 ```
-123456GN
 
-# From backend directory, with venv active
-yoyo apply --database postgresql://postgres:123456GN@localhost/liquidtext ./src/yoyo
+Frontend runs at: http://localhost:3333
 
+---
 
+## Environment Variables
 
-yoyo apply --database postgresql://postgres:123456GN@localhost/liquidtext ./src/yoyo
+The backend uses a `.env` file at `backend/.env`. Required variables:
+
+```env
+DATABASE_URL=postgresql://postgres:YOUR_PASSWORD@localhost:5432/liquidtext
+REDIS_URL=redis://localhost:6379/0
+SUMMARY_SERVICE_URL=http://localhost:8010/summarize
+```
+
+> When running via Docker Compose, these are injected automatically — you do not need to edit `.env`.
+
+---
+
+## Core Features
+
+- **PDF Viewer** — Render multi-page PDFs with text layer support
+- **Snippet Extraction** — Select and extract text/regions from PDFs into the workspace
+- **Interactive Workspace** — Freehand drawing, connectors, and annotation canvas (Konva)
+- **Draggable Text Boxes** — Resize and reposition extracted content freely
+- **AI Summarization** — Summarize documents or selections via the summary service
+- **Persistence** — All snippets, connections, and workspaces saved to PostgreSQL
+
+---
+
+## Core Libraries
+
+### Frontend
+- `react` & `react-dom` — UI framework
+- `pdfjs-dist` — PDF rendering and text extraction engine
+- `konva` & `react-konva` — Interactive canvas for the workspace
+- `lexical` — Rich text editor for notes
+- `react-rnd` — Draggable and resizable components
+- `axios` — HTTP client for API calls
+- `uuid` — Unique ID generation
+
+### Backend
+- `fastapi` — Web framework
+- `uvicorn` / `gunicorn` — ASGI server
+- `sqlalchemy` — ORM for database access
+- `psycopg2-binary` — PostgreSQL adapter
+- `redis` — Cache client
+- `python-dotenv` — Environment variable management
+- `yoyo-migrations` — Database schema migrations

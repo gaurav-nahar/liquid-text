@@ -6,8 +6,11 @@ class Workspace(Base):
     __tablename__ = "workspaces"
 
     id = Column(Integer, primary_key=True, index=True)
-    pdf_id = Column(Integer, ForeignKey("pdf_files.id", ondelete="CASCADE"), nullable=False)
+    pdf_id = Column(Integer, ForeignKey("pdf_files.id", ondelete="CASCADE"), nullable=True)
     user_id = Column(String, index=True, nullable=False) # Mandatory for user isolation
+    diary_no = Column(String, nullable=True, index=True)
+    diary_year = Column(String, nullable=True, index=True)
+    establishment = Column(String, nullable=True, index=True)
     name = Column(String, nullable=False, default="Initial Workspace")
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)

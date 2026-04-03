@@ -22,6 +22,7 @@ from src.models.pdf_model import PDFFile
 from PIL import Image, ImageOps, ImageFilter
 
 from src.cache.cache import cache_get, cache_set, cache_delete, cache_delete_pattern, get_redis
+from src.utils.case_context import build_case_context
 
 logger = logging.getLogger(__name__)
 
@@ -468,11 +469,20 @@ class PdfAnnotationsSave(BaseModel):
 
 
 @router.post("/{pdf_id}/save_annotations")
-def save_pdf_annotations(pdf_id: int, payload: PdfAnnotationsSave, db: Session = Depends(get_db), x_user_id: Optional[str] = Header(None)):
+def save_pdf_annotations(
+    pdf_id: int,
+    payload: PdfAnnotationsSave,
+    db: Session = Depends(get_db),
+    x_user_id: Optional[str] = Header(None),
+    x_diary_no: Optional[str] = Header(None),
+    x_diary_year: Optional[str] = Header(None),
+    x_establishment: Optional[str] = Header(None),
+):
     """
     Save PDF annotations with proper upsert logic and user isolation.
     """
     logger.debug(f"save_annotations: pdf_id={pdf_id} user={x_user_id}")
+    case_context = build_case_context(x_diary_no, x_diary_year, x_establishment)
     
     # ID Tracking
     id_map = {}
@@ -492,6 +502,9 @@ def save_pdf_annotations(pdf_id: int, payload: PdfAnnotationsSave, db: Session =
             data = {
                 "pdf_id": pdf_id,
                 "user_id": x_user_id,
+                "diary_no": case_context.get("diary_no"),
+                "diary_year": case_context.get("diary_year"),
+                "establishment": case_context.get("establishment"),
                 "page_num": safe_int(hl_data.get("page_num")),
                 "color": hl_data.get("color", "#FFEB3B"),
                 "x_pct": safe_float(hl_data.get("x_pct")),
@@ -529,6 +542,9 @@ def save_pdf_annotations(pdf_id: int, payload: PdfAnnotationsSave, db: Session =
             data = {
                 "pdf_id": pdf_id,
                 "user_id": x_user_id,
+                "diary_no": case_context.get("diary_no"),
+                "diary_year": case_context.get("diary_year"),
+                "establishment": case_context.get("establishment"),
                 "page_num": safe_int(txt_data.get("page_num")),
                 "text": txt_data.get("text", ""),
                 "x_pct": safe_float(txt_data.get("x_pct")),
@@ -563,6 +579,9 @@ def save_pdf_annotations(pdf_id: int, payload: PdfAnnotationsSave, db: Session =
             data = {
                 "pdf_id": pdf_id,
                 "user_id": x_user_id,
+                "diary_no": case_context.get("diary_no"),
+                "diary_year": case_context.get("diary_year"),
+                "establishment": case_context.get("establishment"),
                 "page_num": safe_int(line_data.get("page_num")),
                 "points": line_data.get("points", []),
                 "color": line_data.get("color", "black"),
@@ -597,6 +616,9 @@ def save_pdf_annotations(pdf_id: int, payload: PdfAnnotationsSave, db: Session =
             data = {
                 "pdf_id": pdf_id,
                 "user_id": x_user_id,
+                "diary_no": case_context.get("diary_no"),
+                "diary_year": case_context.get("diary_year"),
+                "establishment": case_context.get("establishment"),
                 "page_num": safe_int(brush_data.get("page_num")),
                 "path_data": brush_data.get("path_data", []),
                 "color": brush_data.get("color", "#FFEB3B"),

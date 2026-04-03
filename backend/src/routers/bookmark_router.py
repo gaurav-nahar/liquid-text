@@ -7,6 +7,7 @@ from src.db.db import get_db
 from src.repo.bookmark_repo import BookmarkRepo
 from src.request.bookmark_request import BookmarkCreate, BookmarkOut
 from src.models.bookmark_model import Bookmark
+from src.utils.case_context import build_case_context
 
 class BookmarkRename(BaseModel):
     name: str
@@ -21,9 +22,18 @@ def list_bookmarks(pdf_id: int, db: Session = Depends(get_db), x_user_id: Option
 
 
 @router.post("/pdf/{pdf_id}", response_model=BookmarkOut)
-def create_bookmark(pdf_id: int, req: BookmarkCreate, db: Session = Depends(get_db), x_user_id: Optional[str] = Header(None)):
+def create_bookmark(
+    pdf_id: int,
+    req: BookmarkCreate,
+    db: Session = Depends(get_db),
+    x_user_id: Optional[str] = Header(None),
+    x_diary_no: Optional[str] = Header(None),
+    x_diary_year: Optional[str] = Header(None),
+    x_establishment: Optional[str] = Header(None),
+):
     user_id = x_user_id or "user123"
-    return BookmarkRepo.create(db, pdf_id, user_id, req.page_num, req.name or "")
+    case_context = build_case_context(x_diary_no, x_diary_year, x_establishment)
+    return BookmarkRepo.create(db, pdf_id, user_id, req.page_num, req.name or "", case_context=case_context)
 
 
 @router.patch("/{bookmark_id}", response_model=BookmarkOut)

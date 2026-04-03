@@ -54,6 +54,7 @@ const PDFViewer = React.memo(
                 setSearchMatches,
                 pdfConnectionLines, setPdfConnectionLines,
                 drawingLine, setDrawingLine,
+                activePdfConnId, setActivePdfConnId,
             } = usePDF();
 
             const {
@@ -247,8 +248,10 @@ const PDFViewer = React.memo(
                 pdfDoc: pdfDocRef.current,
                 getTotalPages() { return pdfDocRef.current?.numPages || 0; },
                 contractBetweenPages(p1, p2) {
-                    // Logic from pdfShrinkExpand.js
                     contractBetween(p1, p2);
+                },
+                expandAllPages() {
+                    expandAll();
                 },
                 addPdfText() {
                     addPdfTextLogic();
@@ -360,6 +363,25 @@ const PDFViewer = React.memo(
             // eslint-disable-next-line react-hooks/exhaustive-deps
             }, [tool]);
 
+            // Auto-collapse pages between newly created connection lines
+            const prevConnLinesLenRef = useRef(0);
+            useEffect(() => {
+                const lines = pdfConnectionLines || [];
+                if (lines.length > prevConnLinesLenRef.current) {
+                    const newLine = lines[lines.length - 1];
+                    if (newLine && newLine.from?.pageNum !== newLine.to?.pageNum) {
+                        // RAF ensures DOM page wrappers are fully laid out before collapsing
+                        requestAnimationFrame(() => {
+                            requestAnimationFrame(() => {
+                                contractBetween(newLine.from.pageNum, newLine.to.pageNum);
+                            });
+                        });
+                    }
+                }
+                prevConnLinesLenRef.current = lines.length;
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+            }, [pdfConnectionLines]);
+
             // --- SECTION 9: FINAL UI RENDER ---
             const effectiveHeight = (dynamicHeight > 0) ? dynamicHeight : pdfDimensions.height;
 
@@ -423,6 +445,7 @@ const PDFViewer = React.memo(
                         drawingLine={drawingLine}
                         getAnchorScreenPos={getAnchorScreenPos}
                         containerRef={containerRef}
+                        externalActiveId={activePdfConnId}
                     />
 
                     {/* [TOOL LAYER] Expand All Button - Logic from pdfShrinkExpand.js */}
@@ -462,7 +485,10 @@ const PDFViewer = React.memo(
                                 const name = text.trim().slice(0, 80) || `Page ${pg}`;
                                 return handleAddBookmark(pg, name);
                             }}
-                            hasPendingCrossLink={!!(pendingCrossLink && String(pendingCrossLink.pdfId) !== String(sourcePdfId))}
+                            hasPendingCrossLink={!!(pendingCrossLink && (
+                                String(pendingCrossLink.pdfId) !== String(sourcePdfId) ||
+                                pendingCrossLink.pageNum !== (popupData.pageNum || 1)
+                            ))}
                             onConnectPdf={() => {
                                 const endpoint = {
                                     pdfId: sourcePdfId,
@@ -471,7 +497,11 @@ const PDFViewer = React.memo(
                                     yPct: popupData.anchorYPct ?? 0.5,
                                     text: (popupData.selectedText || "").slice(0, 120),
                                 };
-                                if (pendingCrossLink && String(pendingCrossLink.pdfId) !== String(sourcePdfId)) {
+                                const isDifferentTarget = pendingCrossLink && (
+                                    String(pendingCrossLink.pdfId) !== String(sourcePdfId) ||
+                                    pendingCrossLink.pageNum !== endpoint.pageNum
+                                );
+                                if (isDifferentTarget) {
                                     completeCrossLink(endpoint);
                                 } else {
                                     startCrossLink(endpoint);
@@ -517,6 +547,21 @@ const PDFViewer = React.memo(
                                     zoomLevel={zoomLevel}
                                     isResizing={isResizing}
                                 />, info.wrapper
+                            )}
+
+                            {/* Page number badge — top-right corner of each page */}
+                            {createPortal(
+                                <div style={{
+                                    position: "absolute", top: 6, right: 8,
+                                    background: "rgba(0,0,0,0.28)",
+                                    color: "rgba(5, 5, 5, 0.92)",
+                                    fontSize: 17, fontWeight: 600,
+                                    padding: "2px 7px", borderRadius: 5,
+                                    pointerEvents: "none", zIndex: 600,
+                                    letterSpacing: "0.03em", userSelect: "none",
+                                }}>
+                                    {pageNum}
+                                </div>, info.wrapper
                             )}
                         </React.Fragment>
                     ))}

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import api from "../../api/api";
+import api, { getPdfProxyUrl } from "../../api/api";
 
 //it is used to select a pdf file from the user's computer or from a URL
 export default function PDFSelector({ onSelect }) {
@@ -9,7 +9,7 @@ export default function PDFSelector({ onSelect }) {
   const [error, setError] = useState("");
   const lastAutoLoadedUrl = useRef(null);
 
-  const loadPdfFromUrl = useCallback(async (url) => {
+  const loadPdfFromUrl = useCallback(async (url, preferredFileName = "") => {
     setError("");
     setLoading(true);
     setActiveTab("url");
@@ -24,7 +24,7 @@ export default function PDFSelector({ onSelect }) {
          Extract File Name Safely
       =============================== */
 
-      let fileName = "document.pdf";
+      let fileName = preferredFileName || "document.pdf";
 
       try {
         const parsedUrl = new URL(url);
@@ -57,9 +57,8 @@ export default function PDFSelector({ onSelect }) {
          Fetch PDF as Blob
       =============================== */
 
-      const response = await fetch(url, {
+      const response = await fetch(getPdfProxyUrl(url), {
         method: "GET",
-        mode: "cors",
         cache: "no-store",
         signal: controller.signal,
       });
@@ -115,10 +114,11 @@ export default function PDFSelector({ onSelect }) {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const pdfUrl = params.get("pdf_url") || params.get("pdf"); // Support both pdf_url and pdf
+    const pdfName = (params.get("pdf_name") || "").trim();
     if (pdfUrl && pdfUrl.startsWith("http")) {
       if (lastAutoLoadedUrl.current === pdfUrl) return;
       lastAutoLoadedUrl.current = pdfUrl;
-      loadPdfFromUrl(pdfUrl);
+      loadPdfFromUrl(pdfUrl, pdfName);
     }
   }, [loadPdfFromUrl]);
 

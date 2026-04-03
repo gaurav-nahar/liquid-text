@@ -16,14 +16,14 @@
  * unnecessary re-renders when unrelated slices change.
  */
 
-import { createContext, useCallback, useContext, useEffect, useMemo } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef } from 'react';
 import { UIProvider, useUI } from './UIContext';
 import { WorkspaceProvider, useWorkspace } from './WorkspaceContext';
 import { PDFProvider, usePDF } from './PDFContext';
 import useLocalStorageSync from '../hooks/useLocalStorageSync';
 import useWorkspaceLoader from '../services/useWorkspaceLoader';
 import useWorkspaceSaver from '../services/useWorkspaceSaver';
-import api from '../api/api';
+import api, { getPdfProxyUrl } from '../api/api';
 import { getCurrentTimestampName } from '../utils/defaultNames';
 
 // ── Two exported contexts ─────────────────────────────────────────────────────
@@ -33,6 +33,23 @@ const AppContext = createContext(null);
 const AppActionsContext = createContext(null);
 const SUMMARY_POLL_INTERVAL_MS = 2500;
 const SUMMARY_MAX_POLL_ATTEMPTS = 180;
+
+const buildCaseKey = (diaryNo = "", diaryYear = "", establishment = "") =>
+    [diaryNo.trim(), diaryYear.trim(), establishment.trim().toLowerCase()].join("::");
+
+const readCaseContextFromUrl = () => {
+    const params = new URLSearchParams(window.location.search);
+    const diaryNo = (params.get("diary_no") || "").trim();
+    const diaryYear = (params.get("diary_year") || "").trim();
+    const establishment = (params.get("establishment") || "").trim();
+    return {
+        diaryNo,
+        diaryYear,
+        establishment,
+        caseKey: buildCaseKey(diaryNo, diaryYear, establishment),
+        hasCaseContext: Boolean(diaryNo || diaryYear || establishment),
+    };
+};
 
 const getSummaryErrorMessage = (err) => {
     if (err?.code === "ECONNABORTED") {
@@ -81,12 +98,18 @@ function AppInner({ children }) {
         crossPdfLinks, setCrossPdfLinks,
         setPendingCrossLink, setDragWire,
         dragWireRef, pendingCrossLinkRef,
+        pdfTabs,
         setPdfTabs,
         activeTabId, setActiveTabId,
         setLastCreatedCrossLinkId,
         PDF_TAB_COLORS,
         panel2PdfId,
+        closePanel2,
+        casePdfList, setCasePdfList,
     } = ui;
+
+    const caseSessionRef = useRef({ key: null, workspacePdfId: null });
+    const pdfBlobUrlCacheRef = useRef(new Map());
 
     // ── Build contextState for useWorkspaceLoader / useWorkspaceSaver ─────────
     // These services accept a flat object; we assemble it from all sub-contexts.
@@ -145,6 +168,53 @@ function AppInner({ children }) {
         if (!pdfId) return;
         api.listBookmarks(pdfId).then(res => setBookmarks(res.data)).catch(() => {});
     }, [pdfId, setBookmarks]);
+
+    const activatePdfTab = useCallback((tab) => {
+        if (!tab) return;
+        setActiveTabId(tab.tabId);
+        setSelectedPDF(tab.url);
+        setPdfName(tab.name);
+        setPdfId(tab.pdfId);
+    }, [setActiveTabId, setSelectedPDF, setPdfName, setPdfId]);
+
+    const cachePdfBlobUrl = useCallback(async (sourceUrl) => {
+        const normalized = (sourceUrl || "").trim();
+        if (!normalized) {
+            throw new Error("Missing PDF URL");
+        }
+
+        const cache = pdfBlobUrlCacheRef.current;
+        if (cache.has(normalized)) {
+            return cache.get(normalized);
+        }
+
+        const response = await fetch(getPdfProxyUrl(normalized), {
+            method: "GET",
+            cache: "no-store",
+        });
+
+        if (!response.ok) {
+            throw new Error(`Failed to load PDF: ${response.status}`);
+        }
+
+        const blob = await response.blob();
+        if (!blob || blob.size === 0) {
+            throw new Error("Received empty PDF file");
+        }
+
+        const objectUrl = URL.createObjectURL(blob);
+        cache.set(normalized, objectUrl);
+        return objectUrl;
+    }, []);
+
+    const ensureCaseWorkspace = useCallback(async () => {
+        const wsRes = await api.getCaseWorkspace();
+        const ws = wsRes.data;
+        setWorkspaces([ws]);
+        setActiveWorkspace(ws);
+        caseSessionRef.current.workspaceId = ws.id;
+        return ws;
+    }, [setWorkspaces, setActiveWorkspace]);
 
     const requestSummaryText = useCallback(async (text) => {
         const startRes = await api.startPdfSummary(text);
@@ -288,8 +358,8 @@ function AppInner({ children }) {
 
     // ── Workspace management ──────────────────────────────────────────────────
     const handleAddWorkspace = useCallback(async (name, targetPdfId = null) => {
-        const idToUse = targetPdfId || pdfId;
-        if (!idToUse) return;
+        const idToUse = targetPdfId ?? (caseSessionRef.current.workspaceId ? 0 : (caseSessionRef.current.workspacePdfId || pdfId));
+        if (idToUse === null || idToUse === undefined) return;
         const nextName = name?.trim() || getCurrentTimestampName();
         try {
             const res = await api.createWorkspace(idToUse, nextName);
@@ -304,31 +374,141 @@ function AppInner({ children }) {
         }
     }, [pdfId, setWorkspaces, setActiveWorkspace, setPendingSummaryWorkspaceId]);
 
+    const openCasePdf = useCallback(async ({
+        diaryNo,
+        diaryYear,
+        establishment,
+        selectedPdf,
+        workspaceRootPdf = null, // kept for backward compat with postMessage API, no longer used
+        resetTabs = false,
+    }) => {
+        if (!selectedPdf?.url) return;
+        if (loading) return;
+
+        setLoading(true);
+        try {
+            const caseKey = buildCaseKey(diaryNo, diaryYear, establishment);
+            const sameCase = caseSessionRef.current.key === caseKey && Boolean(caseSessionRef.current.workspaceId);
+
+            const selectedOriginalPath = (selectedPdf.originalPath || selectedPdf.url || selectedPdf.name || "").trim();
+            let existingTab = pdfTabs.find((tab) => tab.originalPath === selectedOriginalPath);
+
+            let nextPdfId = existingTab?.pdfId || null;
+            if (!nextPdfId) {
+                const openRes = await api.openPdf(selectedPdf.name || "document.pdf", selectedOriginalPath);
+                nextPdfId = openRes.data.id;
+            }
+
+            const resolvedUrl = existingTab?.url || await cachePdfBlobUrl(selectedPdf.url);
+
+            let caseWsId = caseSessionRef.current.workspaceId;
+            if (!sameCase) {
+                caseSessionRef.current = { key: caseKey, workspacePdfId: null, workspaceId: null };
+                if (resetTabs) {
+                    closePanel2();
+                    setPdfTabs([]);
+                }
+                const ws = await ensureCaseWorkspace();
+                caseWsId = ws.id;
+            }
+
+            // Register this PDF with the case workspace (persists the PDF list)
+            if (caseWsId && nextPdfId && !existingTab) {
+                api.registerPdfInWorkspace(caseWsId, nextPdfId, selectedPdf.name || "document.pdf", selectedOriginalPath)
+                    .then(() => {
+                        setCasePdfList(prev => {
+                            if (prev.find(p => p.pdf_id === nextPdfId)) return prev;
+                            return [...prev, { pdf_id: nextPdfId, pdf_name: selectedPdf.name || "document.pdf", pdf_url: selectedOriginalPath }];
+                        });
+                    })
+                    .catch(e => console.error("PDF registration failed:", e));
+            }
+
+            const nextTabId = existingTab?.tabId || `tab-${nextPdfId}`;
+            activatePdfTab({
+                tabId: nextTabId,
+                pdfId: nextPdfId,
+                url: resolvedUrl,
+                name: selectedPdf.name || "document.pdf",
+            });
+
+            setPdfTabs(prev => {
+                const already = prev.find(
+                    (tab) => tab.pdfId === nextPdfId || tab.originalPath === selectedOriginalPath
+                );
+                if (already) {
+                    return prev.map(tab => (
+                        tab.tabId === already.tabId
+                            ? { ...tab, pdfId: nextPdfId, url: resolvedUrl, name: selectedPdf.name || tab.name, originalPath: selectedOriginalPath }
+                            : tab
+                    ));
+                }
+                const color = PDF_TAB_COLORS[prev.length % PDF_TAB_COLORS.length];
+                return [...prev, {
+                    tabId: nextTabId,
+                    url: resolvedUrl,
+                    name: selectedPdf.name || "document.pdf",
+                    pdfId: nextPdfId,
+                    originalPath: selectedOriginalPath,
+                    color,
+                }];
+            });
+        } catch (err) {
+            console.error("Error opening shared-case PDF:", err);
+        } finally {
+            setLoading(false);
+        }
+    }, [
+        loading, pdfTabs, setLoading, setPdfTabs, activatePdfTab,
+        PDF_TAB_COLORS, cachePdfBlobUrl, ensureCaseWorkspace, closePanel2, setCasePdfList
+    ]);
+
     const handlePDFSelect = useCallback(async (url, fileName, originalPath) => {
         if (loading) return;
         setLoading(true);
         setSelectedPDF(url);
         setPdfName(fileName);
         try {
+            const caseContext = readCaseContextFromUrl();
             const backendPath = (originalPath || fileName).trim();
             const openRes = await api.openPdf(fileName, backendPath);
             const newPdfId = openRes.data.id;
-            setPdfId(newPdfId);
-            const wsRes = await api.listWorkspaces(newPdfId);
-            setWorkspaces(wsRes.data);
-            if (wsRes.data.length > 0) {
-                setActiveWorkspace(wsRes.data[0]);
+
+            if (caseContext.hasCaseContext) {
+                // In case context: use the shared case workspace
+                let caseWsId = caseSessionRef.current.workspaceId;
+                if (!caseWsId) {
+                    const ws = await ensureCaseWorkspace();
+                    caseWsId = ws.id;
+                }
+                // Register PDF with case workspace
+                api.registerPdfInWorkspace(caseWsId, newPdfId, fileName, backendPath)
+                    .then(() => {
+                        setCasePdfList(prev => {
+                            if (prev.find(p => p.pdf_id === newPdfId)) return prev;
+                            return [...prev, { pdf_id: newPdfId, pdf_name: fileName, pdf_url: backendPath }];
+                        });
+                    })
+                    .catch(e => console.error("PDF registration failed:", e));
             } else {
-                await handleAddWorkspace("Main", newPdfId);
-                await handleAddWorkspace("summary", newPdfId);
+                // Non-case mode: use PDF-based workspace (existing behavior)
+                const wsRes = await api.listWorkspaces(newPdfId);
+                setWorkspaces(wsRes.data);
+                if (wsRes.data.length > 0) {
+                    setActiveWorkspace(wsRes.data[0]);
+                } else {
+                    await handleAddWorkspace("Main", newPdfId);
+                }
             }
-            const tabId = `tab-${newPdfId}-${Date.now()}`;
+
+            setPdfId(newPdfId);
+            const tabId = `tab-${newPdfId}`;
             setPdfTabs(prev => {
-                const exists = prev.find(t => t.pdfId === newPdfId);
+                const exists = prev.find(t => t.pdfId === newPdfId || t.originalPath === backendPath);
                 if (exists) { setActiveTabId(exists.tabId); return prev; }
                 const color = PDF_TAB_COLORS[prev.length % PDF_TAB_COLORS.length];
                 setActiveTabId(tabId);
-                return [...prev, { tabId, url, name: fileName, pdfId: newPdfId, color }];
+                return [...prev, { tabId, url, name: fileName, pdfId: newPdfId, color, originalPath: backendPath }];
             });
         } catch (err) {
             console.error("Error opening PDF:", err);
@@ -336,26 +516,21 @@ function AppInner({ children }) {
             setLoading(false);
         }
     }, [loading, setLoading, setSelectedPDF, setPdfName, setPdfId, setWorkspaces,
-        setActiveWorkspace, handleAddWorkspace, setPdfTabs, setActiveTabId, PDF_TAB_COLORS]);
+        setActiveWorkspace, handleAddWorkspace, setPdfTabs, setActiveTabId, PDF_TAB_COLORS,
+        ensureCaseWorkspace, setCasePdfList]);
 
     const switchPdfTab = useCallback((tab) => {
         if (activeTabId === tab.tabId) return;
-        setActiveTabId(tab.tabId);
-        setSelectedPDF(tab.url);
-        setPdfName(tab.name);
-        setPdfId(tab.pdfId);
-    }, [activeTabId, setActiveTabId, setSelectedPDF, setPdfName, setPdfId]);
+        activatePdfTab(tab);
+    }, [activeTabId, activatePdfTab]);
 
     const closePdfTab = useCallback((tabId) => {
         setPdfTabs(prev => {
             const remaining = prev.filter(t => t.tabId !== tabId);
             if (activeTabId === tabId && remaining.length > 0) {
-                const next = remaining[remaining.length - 1];
-                setActiveTabId(next.tabId);
-                setSelectedPDF(next.url);
-                setPdfName(next.name);
-                setPdfId(next.pdfId);
+                activatePdfTab(remaining[remaining.length - 1]);
             } else if (remaining.length === 0) {
+                caseSessionRef.current = { key: null, workspacePdfId: null, workspaceId: null };
                 setActiveTabId(null);
                 setSelectedPDF(null);
                 setPdfName("");
@@ -365,7 +540,7 @@ function AppInner({ children }) {
             }
             return remaining;
         });
-    }, [activeTabId, setPdfTabs, setActiveTabId, setSelectedPDF, setPdfName, setPdfId, setWorkspaces, setActiveWorkspace]);
+    }, [activeTabId, setPdfTabs, activatePdfTab, setActiveTabId, setSelectedPDF, setPdfName, setPdfId, setWorkspaces, setActiveWorkspace]);
 
     const jumpToSource = useCallback((snippet) => {
         const snippetPdfId = String(snippet.pdf_id || snippet.sourcePdfId || "");
@@ -469,6 +644,54 @@ function AppInner({ children }) {
         return () => window.removeEventListener('keydown', onKeyDown);
     }, [handleUndo, handleRedo]);
 
+    useEffect(() => {
+        const onMessage = (event) => {
+            const data = event.data;
+            if (!data || data.type !== "LIQUIDTEXT_OPEN_CASE_PDF") return;
+
+            openCasePdf({
+                diaryNo: data.diary_no,
+                diaryYear: data.diary_year,
+                establishment: data.establishment,
+                selectedPdf: data.selected_pdf,
+                workspaceRootPdf: data.workspace_root_pdf,
+                resetTabs: Boolean(data.reset_tabs),
+            });
+        };
+
+        window.addEventListener("message", onMessage);
+        return () => window.removeEventListener("message", onMessage);
+    }, [openCasePdf]);
+
+    useEffect(() => {
+        const { hasCaseContext, diaryNo, diaryYear, establishment, caseKey } = readCaseContextFromUrl();
+        if (!hasCaseContext) return;
+        caseSessionRef.current = {
+            key: caseKey,
+            workspacePdfId: null,
+            workspaceId: null,
+            diaryNo,
+            diaryYear,
+            establishment,
+        };
+
+        // Auto-initialize the case workspace and restore saved PDF list
+        (async () => {
+            try {
+                const wsRes = await api.getCaseWorkspace();
+                const ws = wsRes.data;
+                setWorkspaces([ws]);
+                setActiveWorkspace(ws);
+                caseSessionRef.current.workspaceId = ws.id;
+
+                const pdfsRes = await api.listWorkspacePdfs(ws.id);
+                setCasePdfList(pdfsRes.data || []);
+            } catch (e) {
+                console.error("Case workspace init failed:", e);
+            }
+        })();
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
     // ── AppActionsContext: stable cross-context callbacks ─────────────────────
     // These are all useCallback with stable deps, so this value rarely changes.
     // Components that ONLY need handlers can use useAppActions() and avoid re-renders
@@ -484,6 +707,7 @@ function AppInner({ children }) {
         jumpToSource,
         handleSummarizePdf,
         savePdfChanges, saveWorkspaceChanges,
+        openCasePdf,
         // Expose setIsDirty here so PDFViewer doesn't need to import WorkspaceContext
         setIsDirty,
     }), [
@@ -494,7 +718,7 @@ function AppInner({ children }) {
         completeCrossLink, deleteCrossLink, completeDragWireLink,
         handleAddWorkspace, handlePDFSelect,
         switchPdfTab, closePdfTab, jumpToSource, handleSummarizePdf,
-        savePdfChanges, saveWorkspaceChanges, setIsDirty,
+        savePdfChanges, saveWorkspaceChanges, openCasePdf, setIsDirty,
     ]);
 
     // ── AppContext: full combined value for useApp() backward compat ──────────
