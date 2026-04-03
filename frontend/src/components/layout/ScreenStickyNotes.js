@@ -15,6 +15,7 @@ function save(notes) {
 function StickyNote({ note, onUpdate, onDelete }) {
     const [text, setText] = useState(note.text);
     const [editing, setEditing] = useState(note.fresh);
+    const [collapsed, setCollapsed] = useState(false);
     const dragging = useRef(false);
     const startPos = useRef({});
     const noteRef = useRef();
@@ -27,6 +28,15 @@ function StickyNote({ note, onUpdate, onDelete }) {
             onUpdate(note.id, { fresh: false });
         }
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+    const clampPosition = (x, y, w, h) => {
+        const maxX = window.innerWidth - w;
+        const maxY = window.innerHeight - h;
+        return {
+            x: Math.max(0, Math.min(x, maxX)),
+            y: Math.max(0, Math.min(y, maxY)),
+        };
+    };
 
     const handleHeaderMouseDown = (e) => {
         if (e.target.tagName === "BUTTON") return;
@@ -43,10 +53,14 @@ function StickyNote({ note, onUpdate, onDelete }) {
             if (!dragging.current) return;
             const dx = ev.clientX - startPos.current.mouseX;
             const dy = ev.clientY - startPos.current.mouseY;
-            onUpdate(note.id, {
-                x: startPos.current.noteX + dx,
-                y: startPos.current.noteY + dy,
-            });
+            const noteW = note.width || 220;
+            const noteH = collapsed ? 34 : (note.height || 160);
+            const clamped = clampPosition(
+                startPos.current.noteX + dx,
+                startPos.current.noteY + dy,
+                noteW, noteH
+            );
+            onUpdate(note.id, clamped);
         };
         const onUp = () => {
             dragging.current = false;
@@ -76,7 +90,7 @@ function StickyNote({ note, onUpdate, onDelete }) {
                 left: note.x,
                 top: note.y,
                 width: note.width || 220,
-                height: note.height || 160,
+                height: collapsed ? "auto" : (note.height || 160),
                 background: note.color,
                 border: `1px solid ${borderColor}`,
                 borderRadius: 4,
@@ -97,7 +111,7 @@ function StickyNote({ note, onUpdate, onDelete }) {
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "space-between",
-                    borderRadius: "3px 3px 0 0",
+                    borderRadius: collapsed ? 3 : "3px 3px 0 0",
                     flexShrink: 0,
                 }}
             >
@@ -115,46 +129,60 @@ function StickyNote({ note, onUpdate, onDelete }) {
                         />
                     ))}
                 </div>
-                <button
-                    onClick={() => onDelete(note.id)}
-                    style={{
-                        background: "none", border: "none", cursor: "pointer",
-                        color: "rgba(0,0,0,0.55)", fontSize: 16, lineHeight: 1,
-                        padding: "0 2px", display: "flex", alignItems: "center",
-                    }}
-                    title="Delete"
-                >×</button>
+                <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
+                    <button
+                        onClick={() => setCollapsed(c => !c)}
+                        style={{
+                            background: "none", border: "none", cursor: "pointer",
+                            color: "rgba(0,0,0,0.55)", fontSize: 13, lineHeight: 1,
+                            padding: "0 3px", display: "flex", alignItems: "center",
+                        }}
+                        title={collapsed ? "Expand" : "Collapse"}
+                    >{collapsed ? "▲" : "▼"}</button>
+                    <button
+                        onClick={() => onDelete(note.id)}
+                        style={{
+                            background: "none", border: "none", cursor: "pointer",
+                            color: "rgba(0,0,0,0.55)", fontSize: 16, lineHeight: 1,
+                            padding: "0 2px", display: "flex", alignItems: "center",
+                        }}
+                        title="Delete"
+                    >×</button>
+                </div>
             </div>
 
-            {/* Text area */}
-            <textarea
-                ref={textareaRef}
-                value={text}
-                onChange={e => setText(e.target.value)}
-                onFocus={() => setEditing(true)}
-                onBlur={commitText}
-                onKeyDown={e => { if (e.key === "Escape") { commitText(); e.target.blur(); } }}
-                placeholder="Type your note…"
-                style={{
-                    flex: 1,
-                    resize: "none",
-                    border: "none",
-                    outline: "none",
-                    background: "transparent",
-                    fontSize: 13,
-                    lineHeight: 1.6,
-                    padding: "8px 10px",
-                    color: "#333",
-                    fontFamily: "inherit",
-                    minHeight: 60,
-                    cursor: "text",
-                    boxSizing: "border-box",
-                    width: "100%",
-                }}
-            />
-
-            {/* Resize handle */}
-            <ResizeHandle noteId={note.id} width={note.width || 220} height={note.height || 160} onUpdate={onUpdate} />
+            {/* Text area — hidden when collapsed */}
+            {!collapsed && (
+                <>
+                    <textarea
+                        ref={textareaRef}
+                        value={text}
+                        onChange={e => setText(e.target.value)}
+                        onFocus={() => setEditing(true)}
+                        onBlur={commitText}
+                        onKeyDown={e => { if (e.key === "Escape") { commitText(); e.target.blur(); } }}
+                        placeholder="Type your note…"
+                        style={{
+                            flex: 1,
+                            resize: "none",
+                            border: "none",
+                            outline: "none",
+                            background: "transparent",
+                            fontSize: 13,
+                            lineHeight: 1.6,
+                            padding: "8px 10px",
+                            color: "#333",
+                            fontFamily: "inherit",
+                            minHeight: 60,
+                            cursor: "text",
+                            boxSizing: "border-box",
+                            width: "100%",
+                        }}
+                    />
+                    {/* Resize handle */}
+                    <ResizeHandle noteId={note.id} width={note.width || 220} height={note.height || 160} onUpdate={onUpdate} />
+                </>
+            )}
         </div>
     );
 }

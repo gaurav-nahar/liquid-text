@@ -121,17 +121,62 @@ function getSelectedNode(selection) {
     return anchor.offset === 0 ? focusNode : anchorNode;
 }
 
+const SPEECH_REPLACEMENTS = [
+    { pattern: /\b(?:comma|coma)\b/gi, replacement: "," },
+    { pattern: /\b(?:full stop|fullstop|period|dot)\b/gi, replacement: "." },
+    { pattern: /\b(?:question mark)\b/gi, replacement: "?" },
+    { pattern: /\b(?:exclamation mark|exclamation point)\b/gi, replacement: "!" },
+    { pattern: /\b(?:semicolon|semi colon)\b/gi, replacement: ";" },
+    { pattern: /\b(?:colon)\b/gi, replacement: ":" },
+    { pattern: /\b(?:dash|hyphen)\b/gi, replacement: "-" },
+    { pattern: /\b(?:open bracket|open parenthesis)\b/gi, replacement: "(" },
+    { pattern: /\b(?:close bracket|close parenthesis)\b/gi, replacement: ")" },
+    { pattern: /\b(?:open square bracket)\b/gi, replacement: "[" },
+    { pattern: /\b(?:close square bracket)\b/gi, replacement: "]" },
+    { pattern: /\b(?:open curly bracket)\b/gi, replacement: "{" },
+    { pattern: /\b(?:close curly bracket)\b/gi, replacement: "}" },
+    { pattern: /\b(?:double quote|open quote|close quote|quotation mark)\b/gi, replacement: "\"" },
+    { pattern: /\b(?:single quote|apostrophe)\b/gi, replacement: "'" },
+    { pattern: /\b(?:new line|next line|line break)\b/gi, replacement: "\n" },
+    { pattern: /\b(?:new paragraph|next paragraph|paragraph break)\b/gi, replacement: "\n\n" },
+    { pattern: /कॉमा/gi, replacement: "," },
+    { pattern: /अल्पविराम/gi, replacement: "," },
+    { pattern: /पूर्ण\s*विराम/gi, replacement: "।" },
+    { pattern: /प्रश्न\s*चिन्ह/gi, replacement: "?" },
+    { pattern: /विस्मयादिबोधक\s*चिन्ह/gi, replacement: "!" },
+    { pattern: /सेमी\s*कोलन|अर्ध\s*विराम/gi, replacement: ";" },
+    { pattern: /कोलन|द्विबिंदु/gi, replacement: ":" },
+    { pattern: /डैश|हाइफ़न|हाइफन/gi, replacement: "-" },
+    { pattern: /ओपन\s*ब्रैकेट|खुला\s*कोष्ठक/gi, replacement: "(" },
+    { pattern: /क्लोज\s*ब्रैकेट|बंद\s*कोष्ठक/gi, replacement: ")" },
+    { pattern: /डबल\s*कोट|उद्धरण\s*चिन्ह/gi, replacement: "\"" },
+    { pattern: /सिंगल\s*कोट|अपोस्ट्रॉफी/gi, replacement: "'" },
+    { pattern: /नया\s*लाइन|अगला\s*लाइन|लाइन\s*ब्रेक/gi, replacement: "\n" },
+    { pattern: /नया\s*पैराग्राफ|अगला\s*पैराग्राफ|पैराग्राफ\s*ब्रेक/gi, replacement: "\n\n" },
+];
+
+function applySpeechReplacements(text) {
+    return SPEECH_REPLACEMENTS.reduce(
+        (result, { pattern, replacement }) => result.replace(pattern, replacement),
+        text
+    );
+}
+
 function formatSpeechText(text) {
-    return text
-        .replace(/comma/gi, ",")
-        .replace(/full stop|period/gi, ".")
-        .replace(/question mark/gi, "?")
-        .replace(/exclamation mark/gi, "!")
-        .replace(/new line/gi, "\n")
-        .replace(/कॉमा/gi, ",")
-        .replace(/पूर्ण विराम/gi, "।")
-        .replace(/प्रश्न चिन्ह/gi, "?")
-        .replace(/नया लाइन/gi, "\n");
+    if (!text) return "";
+
+    const normalized = text
+        .replace(/\s+/g, " ")
+        .replace(/\s*\n\s*/g, "\n")
+        .trim();
+
+    return applySpeechReplacements(normalized)
+        .replace(/[ \t]+([,.;:!?।])/g, "$1")
+        .replace(/([(\[{])\s+/g, "$1")
+        .replace(/\s+([)\]}])/g, "$1")
+        .replace(/([,.;:!?।])([^\s\n)\]}])/g, "$1 $2")
+        .replace(/\n{3,}/g, "\n\n")
+        .trim();
 }
 
 function ToolbarPlugin() {
@@ -660,7 +705,8 @@ function ToolbarPlugin() {
                     className="documentation-toolbar-select documentation-toolbar-select-compact"
                     value={speechLanguage}
                     onChange={(event) => setSpeechLanguage(event.target.value)}
-                    title="Speech language"
+                    disabled={isListening}
+                    title={isListening ? "Stop speech-to-text to change language" : "Speech language"}
                     aria-label="Speech language"
                 >
                     {SPEECH_LANGUAGES.map((language) => (

@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useApp } from "../../context/AppContext";
+import api from "../../api/api";
 
 export default function AnnotationsSidebar() {
     const {
@@ -7,6 +8,7 @@ export default function AnnotationsSidebar() {
         showHighlightsList, setShowHighlightsList,
         setHoveredAnnotationId,
         pdfRef,
+        pdfId,
         handleDeleteHighlight,
         handleDeletePdfText,
         handleDeletePdfDrawing,
@@ -18,14 +20,180 @@ export default function AnnotationsSidebar() {
         crossPdfLinks,
         deleteCrossLink,
         pdfTabs,
+        switchPdfTab,
+        openCasePdf,
+        casePdfList,
         lastCreatedCrossLinkId,
     } = useApp();
 
     const panelRef = useRef(null);
+    const [workspaceAnnotations, setWorkspaceAnnotations] = useState([]);
     // Tracks which side was last navigated for each connection: id -> "from" | "to"
     const navSideRef = useRef({});
     // Tracks which connection IDs currently have pages collapsed
     const [collapsedIds, setCollapsedIds] = useState(new Set());
+
+    const getCaseContextFromUrl = () => {
+        const params = new URLSearchParams(window.location.search);
+        return {
+            diaryNo: (params.get("diary_no") || "").trim(),
+            diaryYear: (params.get("diary_year") || "").trim(),
+            establishment: (params.get("establishment") || "1").trim(),
+            hasCaseContext: Boolean(params.get("diary_no") || params.get("diary_year") || params.get("establishment")),
+        };
+    };
+
+    const caseContext = useMemo(() => getCaseContextFromUrl(), []);
+
+    useEffect(() => {
+        if (!caseContext.hasCaseContext || !casePdfList.length) {
+            setWorkspaceAnnotations([]);
+            return;
+        }
+
+        let cancelled = false;
+        const loadWorkspaceAnnotations = async () => {
+            try {
+                const results = await Promise.all(
+                    casePdfList.map(async (item) => {
+                        const data = await api.loadPdfAnnotations(item.pdf_id);
+                        const pdfName = item.pdf_name || `PDF ${item.pdf_id}`;
+                        const pdfAnnotations = [
+                            ...(data.highlights || []).map((hl) => ({
+                                id: `pdf-${item.pdf_id}-highlight-${hl.id}`,
+                                annotationId: hl.id,
+                                hoverId: hl.id,
+                                pdfId: item.pdf_id,
+                                pdfName,
+                                pageNum: hl.page_num,
+                                type: "highlight",
+                                color: hl.color,
+                                content: hl.content || "",
+                                data: {
+                                    id: hl.id,
+                                    pageNum: hl.page_num,
+                                    xPct: hl.x_pct,
+                                    yPct: hl.y_pct,
+                                    widthPct: hl.width_pct,
+                                    heightPct: hl.height_pct,
+                                    content: hl.content || "",
+                                },
+                            })),
+                            ...(data.pdfTexts || []).map((annot) => ({
+                                id: `pdf-${item.pdf_id}-text-${annot.id}`,
+                                annotationId: annot.id,
+                                hoverId: annot.id,
+                                pdfId: item.pdf_id,
+                                pdfName,
+                                pageNum: annot.page_num,
+                                type: "text",
+                                color: null,
+                                content: annot.text || "",
+                                data: {
+                                    id: annot.id,
+                                    pageNum: annot.page_num,
+                                    text: annot.text || "",
+                                    xPct: annot.x_pct,
+                                    yPct: annot.y_pct,
+                                },
+                            })),
+                            ...(data.pdfDrawingLines || []).map((line) => ({
+                                id: `pdf-${item.pdf_id}-drawing-${line.id}`,
+                                annotationId: line.id,
+                                hoverId: line.id,
+                                pdfId: item.pdf_id,
+                                pdfName,
+                                pageNum: line.page_num,
+                                type: "drawing",
+                                color: line.color,
+                                content: `Drawing on page ${line.page_num}`,
+                                data: {
+                                    id: line.id,
+                                    pageNum: line.page_num,
+                                    points: line.points,
+                                    color: line.color,
+                                },
+                            })),
+                            ...(data.pdfBrushHighlights || []).map((brush) => ({
+                                id: `pdf-${item.pdf_id}-brush-${brush.id}`,
+                                annotationId: brush.id,
+                                hoverId: `brush-${brush.id}`,
+                                pdfId: item.pdf_id,
+                                pdfName,
+                                pageNum: brush.page_num,
+                                type: "brush-highlight",
+                                color: brush.color,
+                                content: `Brush highlight on page ${brush.page_num}`,
+                                data: {
+                                    id: `brush-${brush.id}`,
+                                    serverId: brush.id,
+                                    pageNum: brush.page_num,
+                                    path: brush.path_data,
+                                    color: brush.color,
+                                    brushWidth: brush.brush_width,
+                                },
+                            })),
+                        ];
+                        return pdfAnnotations;
+                    })
+                );
+
+                if (cancelled) return;
+                setWorkspaceAnnotations(
+                    results.flat().sort((a, b) => {
+                        if (String(a.pdfName) !== String(b.pdfName)) {
+                            return String(a.pdfName).localeCompare(String(b.pdfName));
+                        }
+                        return (a.pageNum || 0) - (b.pageNum || 0);
+                    })
+                );
+            } catch (err) {
+                if (!cancelled) {
+                    console.error("Failed to load workspace annotations:", err);
+                }
+            }
+        };
+
+        loadWorkspaceAnnotations();
+        return () => { cancelled = true; };
+    }, [caseContext.hasCaseContext, casePdfList, allAnnotations.length, pdfId]);
+
+    const getPdfName = (pdfId) => {
+        const tab = (pdfTabs || []).find(t => String(t.pdfId) === String(pdfId));
+        if (tab) return tab.name;
+        const casePdf = (casePdfList || []).find(t => String(t.pdf_id) === String(pdfId));
+        return casePdf?.pdf_name || `PDF ${pdfId}`;
+    };
+
+    const activePdfName = getPdfName(pdfId);
+
+    const liveActivePdfAnnotations = useMemo(() => {
+        if (!caseContext.hasCaseContext || !pdfId) return [];
+        return (allAnnotations || []).map((item) => ({
+            ...item,
+            id: `live-${pdfId}-${item.type}-${item.id}`,
+            annotationId: item.id,
+            hoverId: item.id,
+            pdfId,
+            pdfName: activePdfName,
+        }));
+    }, [caseContext.hasCaseContext, pdfId, activePdfName, allAnnotations]);
+
+    const caseVisibleAnnotations = useMemo(() => {
+        if (!caseContext.hasCaseContext) return allAnnotations;
+        const currentPdfId = String(pdfId || "");
+        const otherPdfAnnotations = (workspaceAnnotations || []).filter(
+            (item) => String(item.pdfId || "") !== currentPdfId
+        );
+        return [...otherPdfAnnotations, ...liveActivePdfAnnotations].sort((a, b) => {
+            if (String(a.pdfName) !== String(b.pdfName)) {
+                return String(a.pdfName).localeCompare(String(b.pdfName));
+            }
+            return (a.pageNum || 0) - (b.pageNum || 0);
+        });
+    }, [caseContext.hasCaseContext, allAnnotations, liveActivePdfAnnotations, pdfId, workspaceAnnotations]);
+
+    const visibleAnnotations = caseContext.hasCaseContext ? caseVisibleAnnotations : allAnnotations;
 
     // Auto-open when a NEW annotation is added (not on initial load)
     const hasInitializedRef = useRef(false);
@@ -33,14 +201,14 @@ export default function AnnotationsSidebar() {
     useEffect(() => {
         if (!hasInitializedRef.current) {
             hasInitializedRef.current = true;
-            prevLengthRef.current = allAnnotations.length;
+            prevLengthRef.current = visibleAnnotations.length;
             return;
         }
-        if (allAnnotations.length > prevLengthRef.current) {
+        if (visibleAnnotations.length > prevLengthRef.current) {
             setShowHighlightsList(true);
         }
-        prevLengthRef.current = allAnnotations.length;
-    }, [allAnnotations.length, setShowHighlightsList]);
+        prevLengthRef.current = visibleAnnotations.length;
+    }, [visibleAnnotations.length, setShowHighlightsList]);
 
     // Auto-open and mark collapsed when a new page connection line is added
     const prevConnLengthRef = useRef(0);
@@ -85,17 +253,40 @@ export default function AnnotationsSidebar() {
     }, [showHighlightsList, setShowHighlightsList]);
 
     const onJumpToHighlight = (item) => {
-        if (item.data && item.data.pageNum && item.data.xPct !== undefined) {
-            pdfRef.current?.scrollToSnippet(item.data);
-        } else {
-            pdfRef.current?.scrollToPage(item.pageNum);
-        }
-        setShowHighlightsList(false);
-    };
+        const scrollToItem = () => {
+            if (item.data && item.data.pageNum && item.data.xPct !== undefined) {
+                pdfRef.current?.scrollToSnippet(item.data);
+            } else {
+                pdfRef.current?.scrollToPage(item.pageNum);
+            }
+            setShowHighlightsList(false);
+        };
 
-    const getPdfName = (pdfId) => {
-        const tab = (pdfTabs || []).find(t => String(t.pdfId) === String(pdfId));
-        return tab ? tab.name : `PDF ${pdfId}`;
+        if (!caseContext.hasCaseContext || String(item.pdfId || pdfId) === String(pdfId)) {
+            scrollToItem();
+            return;
+        }
+
+        const openTab = (pdfTabs || []).find((tab) => String(tab.pdfId) === String(item.pdfId));
+        if (openTab) {
+            switchPdfTab(openTab);
+            setTimeout(scrollToItem, 350);
+            return;
+        }
+
+        const casePdf = (casePdfList || []).find((entry) => String(entry.pdf_id) === String(item.pdfId));
+        if (!casePdf) return;
+        openCasePdf({
+            diaryNo: caseContext.diaryNo,
+            diaryYear: caseContext.diaryYear,
+            establishment: caseContext.establishment,
+            selectedPdf: {
+                url: casePdf.pdf_url,
+                name: casePdf.pdf_name,
+                originalPath: casePdf.pdf_url,
+            },
+        });
+        setTimeout(scrollToItem, 900);
     };
 
     const typeInfo = {
@@ -106,17 +297,29 @@ export default function AnnotationsSidebar() {
     };
 
     const deleteAnnotation = (item) => {
-        if (item.type === "highlight")        return () => handleDeleteHighlight(item.id);
-        if (item.type === "text")             return () => handleDeletePdfText(item.id);
-        if (item.type === "drawing")          return () => handleDeletePdfDrawing(item.id);
-        if (item.type === "brush-highlight")  return () => handleDeleteBrushHighlight(item.id);
-        return null;
+        const annotationId = item.annotationId ?? item.id;
+        const runDelete = () => {
+            if (item.type === "highlight") return handleDeleteHighlight(annotationId);
+            if (item.type === "text") return handleDeletePdfText(annotationId);
+            if (item.type === "drawing") return handleDeletePdfDrawing(annotationId);
+            if (item.type === "brush-highlight") return handleDeleteBrushHighlight(annotationId);
+            return null;
+        };
+
+        if (!caseContext.hasCaseContext || String(item.pdfId || pdfId) === String(pdfId)) {
+            return runDelete;
+        }
+
+        return () => {
+            onJumpToHighlight(item);
+            setTimeout(runDelete, 900);
+        };
     };
 
     const pageLines  = pdfConnectionLines || [];
     const crossLinks = crossPdfLinks || [];
     const totalConnections = pageLines.length + crossLinks.length;
-    const totalCount = allAnnotations.length + totalConnections;
+    const totalCount = visibleAnnotations.length + totalConnections;
 
     return (
         <>
@@ -343,7 +546,7 @@ export default function AnnotationsSidebar() {
                     )}
 
                     {/* ── Annotations section header (only when both connections and annotations exist) ── */}
-                    {allAnnotations.length > 0 && totalConnections > 0 && (
+                    {visibleAnnotations.length > 0 && totalConnections > 0 && (
                         <div style={{
                             padding: "7px 16px 5px",
                             fontSize: 10, fontWeight: 700, color: "#666",
@@ -353,13 +556,13 @@ export default function AnnotationsSidebar() {
                         }}>
                             Annotations
                             <span style={{ marginLeft: "auto", background: "#888", color: "#fff", borderRadius: 10, padding: "0 6px", fontSize: 10, fontWeight: 700 }}>
-                                {allAnnotations.length}
+                                {visibleAnnotations.length}
                             </span>
                         </div>
                     )}
 
                     {/* ── Empty state ── */}
-                    {allAnnotations.length === 0 && totalConnections === 0 && (
+                    {visibleAnnotations.length === 0 && totalConnections === 0 && (
                         <div style={{ padding: "40px 20px", color: "#aaa", textAlign: "center", fontSize: 13 }}>
                             No annotations yet.<br />
                             <span style={{ fontSize: 12 }}>Highlight text or draw on the PDF.</span>
@@ -367,7 +570,7 @@ export default function AnnotationsSidebar() {
                     )}
 
                     {/* ── Annotation items ── */}
-                    {allAnnotations.map((item, index) => {
+                    {visibleAnnotations.map((item, index) => {
                         const info = typeInfo[item.type] || { label: item.type, bg: "#f5f5f5" };
                         const onDelete = deleteAnnotation(item);
                         const words = (item.content || "").split(/\s+/);
@@ -379,22 +582,27 @@ export default function AnnotationsSidebar() {
                                 onClick={() => onJumpToHighlight(item)}
                                 className="annotation-item"
                                 style={{ padding: "10px 16px", borderBottom: "1px solid #f0f0f0", cursor: "pointer", display: "flex", alignItems: "flex-start", gap: 10, transition: "background 0.15s" }}
-                                onMouseEnter={e => { e.currentTarget.style.background = "#f9f9f9"; setHoveredAnnotationId(item.id); }}
+                                onMouseEnter={e => { e.currentTarget.style.background = "#f9f9f9"; setHoveredAnnotationId(item.hoverId ?? item.annotationId ?? item.id); }}
                                 onMouseLeave={e => { e.currentTarget.style.background = "transparent"; setHoveredAnnotationId(null); }}
                             >
                                 <div style={{ width: 3, borderRadius: 2, alignSelf: "stretch", background: item.color || "#ccc", flexShrink: 0 }} />
                                 <div style={{ flex: 1, minWidth: 0 }}>
                                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
+                                        {caseContext.hasCaseContext && item.pdfId && (
+                                            <span style={{ fontSize: 10, background: "#eef2ff", color: "#4f46e5", padding: "1px 6px", borderRadius: 4, fontWeight: 700 }}>
+                                                {item.pdfName || getPdfName(item.pdfId)}
+                                            </span>
+                                        )}
                                         <span style={{ fontSize: 11, color: "#007aff", fontWeight: 600 }}>Page No.{item.pageNum}</span>
-                                        {/* <span style={{ fontSize: 10, background: info.bg, padding: "1px 6px", borderRadius: 4, textTransform: "uppercase", letterSpacing: "0.04em", color: "#555" }}>
+                                        <span style={{ fontSize: 10, background: info.bg, padding: "1px 6px", borderRadius: 4, textTransform: "uppercase", letterSpacing: "0.04em", color: "#555" }}>
                                             {info.label}
-                                        </span> */}
+                                        </span>
                                     </div>
                                     <div style={{ fontSize: 13, color: "#333", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                                        {/* {item.type === "drawing" || item.type === "brush-highlight"
+                                        {item.type === "drawing" || item.type === "brush-highlight"
                                             ? <span style={{ color: "#999", fontStyle: "italic" }}>{info.label} on page {item.pageNum}</span>
                                             : preview || <span style={{ color: "#bbb" }}>No content</span>
-                                        } */}
+                                        }
                                     </div>
                                 </div>
                                 {onDelete && (

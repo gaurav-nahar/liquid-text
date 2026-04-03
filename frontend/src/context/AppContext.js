@@ -559,7 +559,24 @@ function AppInner({ children }) {
         if (String(pdfId) === snippetPdfId) { scrollRef(pdfRef); return; }
         setPdfTabs(prev => {
             const tab = prev.find(t => String(t.pdfId) === snippetPdfId);
-            if (!tab) return prev;
+            if (!tab) {
+                const casePdf = (casePdfList || []).find(entry => String(entry.pdf_id) === snippetPdfId);
+                if (casePdf) {
+                    const { diaryNo, diaryYear, establishment } = readCaseContextFromUrl();
+                    openCasePdf({
+                        diaryNo,
+                        diaryYear,
+                        establishment,
+                        selectedPdf: {
+                            url: casePdf.pdf_url,
+                            name: casePdf.pdf_name,
+                            originalPath: casePdf.pdf_url,
+                        },
+                    });
+                    scrollRef(pdfRef);
+                }
+                return prev;
+            }
             setActiveTabId(tab.tabId);
             setSelectedPDF(tab.url);
             setPdfName(tab.name);
@@ -567,7 +584,7 @@ function AppInner({ children }) {
             scrollRef(pdfRef);
             return prev;
         });
-    }, [pdfId, panel2PdfId, pdfRef, pdf2Ref, setPdfTabs, setActiveTabId, setSelectedPDF, setPdfName, setPdfId]); // eslint-disable-line
+    }, [pdfId, panel2PdfId, pdfRef, pdf2Ref, setPdfTabs, setActiveTabId, setSelectedPDF, setPdfName, setPdfId, casePdfList, openCasePdf]); // eslint-disable-line
 
     // ── PDF summarization ─────────────────────────────────────────────────────
     const handleSummarizePdf = useCallback(async () => {

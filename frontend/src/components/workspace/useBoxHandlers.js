@@ -80,7 +80,7 @@ export default function useBoxHandlers({ tool, TOOL_MODES, setEditableBoxes, scr
     };
 
     const newBox = {
-      id: Date.now().toString(),
+      id: `box-${Date.now()}`,
       type: 'box',
       ...normalized,
       text: "",

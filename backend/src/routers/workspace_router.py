@@ -54,6 +54,19 @@ def safe_int(value, default=0):
     except (TypeError, ValueError):
         return default
 
+def resolve_connection_endpoint_id(raw_value, id_map):
+    mapped_id = id_map.get(str(raw_value))
+    if mapped_id:
+        return mapped_id
+
+    candidate = safe_int(raw_value)
+    # Workspace object IDs come from SERIAL/INTEGER-backed tables.
+    # Very large numeric values are almost always client-side temporary IDs
+    # (for example Date.now()), so never persist them as real connection endpoints.
+    if 0 < candidate <= 2147483647:
+        return candidate
+    return 0
+
 def get_obj_id(obj):
     if obj is None: return None
     if isinstance(obj, dict): return obj.get("id")
@@ -292,9 +305,9 @@ async def save_workspace(
         c_dict["pdf_id"] = pdf_id
         c_dict["workspace_id"] = workspace_id
         f_src, f_tgt = str(c_dict.get("source_id")), str(c_dict.get("target_id"))
-        src_id = id_map.get(f_src, safe_int(f_src))
-        tgt_id = id_map.get(f_tgt, safe_int(f_tgt))
-        
+        src_id = resolve_connection_endpoint_id(f_src, id_map)
+        tgt_id = resolve_connection_endpoint_id(f_tgt, id_map)
+
         if src_id > 0 and tgt_id > 0:
             c_dict["source_id"], c_dict["target_id"] = src_id, tgt_id
             db_id = safe_int(frontend_id)
@@ -310,6 +323,14 @@ async def save_workspace(
             nc_id = get_obj_id(new_conn)
             touched_connection_ids.append(nc_id)
             if frontend_id: id_map[str(frontend_id)] = nc_id
+        else:
+            logger.warning(
+                "Skipping unresolved connection save: frontend_id=%s source_id=%s target_id=%s workspace_id=%s",
+                frontend_id,
+                f_src,
+                f_tgt,
+                workspace_id,
+            )
 
     # 7. DELETE ORPHANS
     db.query(Snippet).filter(Snippet.workspace_id == workspace_id, Snippet.user_id == request_user_id, ~Snippet.id.in_(touched_snippet_ids)).delete(synchronize_session=False)

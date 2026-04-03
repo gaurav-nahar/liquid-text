@@ -113,6 +113,7 @@ const DraggableNote = memo(({
   const imgSrc =
     snippet.src ||
     (snippet.file_data ? `data:image/png;base64,${snippet.file_data}` : null);
+  const isImageSnippet = snippet.type === "image" && Boolean(imgSrc);
 
   // 📐 RESIZE LOGIC: pointer capture so pen never loses the handle mid-drag
   const handleResizePointerDown = (e) => {
@@ -130,8 +131,25 @@ const DraggableNote = memo(({
 
     const doResize = (moveEvent) => {
       const scale = getScale() || 1;
-      const newWidth = Math.max(50, startWidth + (moveEvent.clientX - startX)) / scale;
-      const newHeight = Math.max(50, startHeight + (moveEvent.clientY - startY)) / scale;
+      const rawWidth = Math.max(50, startWidth + (moveEvent.clientX - startX)) / scale;
+      const rawHeight = Math.max(50, startHeight + (moveEvent.clientY - startY)) / scale;
+      let newWidth = rawWidth;
+      let newHeight = rawHeight;
+
+      if (isImageSnippet) {
+        const aspectRatio = Math.max(0.01, startWidth / Math.max(startHeight, 1));
+        const widthDrivenHeight = newWidth / aspectRatio;
+        const heightDrivenWidth = newHeight * aspectRatio;
+        const widthChange = Math.abs(newWidth - startWidth / scale);
+        const heightChange = Math.abs(newHeight - startHeight / scale);
+
+        if (widthChange >= heightChange) {
+          newHeight = Math.max(50, widthDrivenHeight);
+        } else {
+          newWidth = Math.max(50, heightDrivenWidth);
+        }
+      }
+
       onDrag?.(null, null, "resize", { id: snippet.id, width: newWidth, height: newHeight });
     };
     const stopResize = () => {
@@ -222,7 +240,7 @@ const DraggableNote = memo(({
           top: snippet.y,
           background: multiSelected ? "#fff3cd" : (snippet.bg_color || (selected ? "#d0e7ff" : "white")),
           borderRadius: "10px",
-          padding: "0.8rem",
+          padding: isImageSnippet ? 0 : "0.8rem",
           width: snippet.width || 180,
           height: snippet.height || "auto",
           boxShadow: selected ? "0 4px 12px rgba(0,0,0,0.2)" : "0 2px 6px rgba(0,0,0,0.15)",
@@ -237,14 +255,15 @@ const DraggableNote = memo(({
           zIndex: selected ? 20 : 10,
           userSelect: isEditing ? "text" : "none",
           touchAction: "none",
-          paddingBottom: "20px", // Extra space for handle
-          paddingRight: "15px",  // Extra space for handle
+          paddingBottom: isImageSnippet ? 0 : "20px", // Extra space for handle
+          paddingRight: isImageSnippet ? 0 : "15px",  // Extra space for handle
           transition: "box-shadow 0.2s, background 0.2s",
           outline: multiSelected ? "2px solid #fd7e14" : "none",
           outlineOffset: "1px",
           minHeight: "40px",
           display: "flex",
-          flexDirection: "column"
+          flexDirection: "column",
+          overflow: "hidden",
         }}
       >
         {isEditing && (snippet.type === "text" || !snippet.type) && (
@@ -298,7 +317,7 @@ const DraggableNote = memo(({
               dangerouslySetInnerHTML={{ __html: toRichTextHtml(tempText) }}
             />
           )
-        ) : snippet.type === "image" && imgSrc ? (
+        ) : isImageSnippet ? (
           <img
             src={imgSrc}
             alt="snippet"
@@ -466,4 +485,3 @@ const DraggableNote = memo(({
 });
 
 export default DraggableNote;
-

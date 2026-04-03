@@ -510,25 +510,22 @@ const Workspace = () => {
                                         )
                                     );
                                 } else if (dx !== null && dy !== null) {
-                                    const sScale = canvasRef.current ? canvasRef.current.getScale() : 1;
-                                    const scaledDx = dx / sScale;
-                                    const scaledDy = dy / sScale;
-
+                                    // dx/dy are already world-coordinate deltas (DraggableNote divides by scale)
                                     // If this snippet is in a group, move all group members together
                                     const group = groups.find(g => g.itemIds.includes(String(s.id)));
                                     if (group) {
                                         const groupIds = new Set(group.itemIds.map(String));
                                         setSnippetsWithDirty(prev => prev.map(n =>
-                                            groupIds.has(String(n.id)) ? { ...n, x: n.x + scaledDx, y: n.y + scaledDy } : n
+                                            groupIds.has(String(n.id)) ? { ...n, x: n.x + dx, y: n.y + dy } : n
                                         ));
                                         setEditableBoxes(prev => prev.map(b =>
-                                            groupIds.has(String(b.id)) ? { ...b, x: b.x + scaledDx, y: b.y + scaledDy } : b
+                                            groupIds.has(String(b.id)) ? { ...b, x: b.x + dx, y: b.y + dy } : b
                                         ));
                                         setIsDirty(true);
                                     } else {
                                         setSnippetsWithDirty((prev) =>
                                             prev.map((note) =>
-                                                note.id === s.id ? { ...note, x: note.x + scaledDx, y: note.y + scaledDy } : note
+                                                note.id === s.id ? { ...note, x: note.x + dx, y: note.y + dy } : note
                                             )
                                         );
                                     }

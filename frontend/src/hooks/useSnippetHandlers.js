@@ -33,7 +33,7 @@ export default function useSnippetHandlers({ tool, TOOL_MODES, pdfRef, workspace
     if (recordHistory && getSnapshot) recordHistory(getSnapshot());
     // ---------- 1. PREPARE SNIPPET OBJECT ----------
     const isFromPDF = !!data.fromPDF;
-    const id = Date.now().toString();
+    const id = `snippet-${Date.now()}`;
     const scale = getScale() || 1;
     const isText = data.type === "text" || !data.type;
 
@@ -72,8 +72,10 @@ export default function useSnippetHandlers({ tool, TOOL_MODES, pdfRef, workspace
     if (isFromPDF) {
       // Preserve line breaks and complex-script character ordering from the PDF selection.
       snippet.text = (data.text || "").replace(/\u00a0/g, " ").trim();
-      snippet.width = isText ? (data.width / scale) + 40 : (data.width / scale);
-      snippet.height = isText ? "auto" : (data.height / scale);
+      // For text: use a fixed comfortable width regardless of selection size.
+      // For images: preserve aspect ratio but cap to avoid giant drops.
+      snippet.width = isText ? 220 : Math.min(300, data.width / scale);
+      snippet.height = isText ? "auto" : Math.min(250, data.height / scale);
       const shouldUseOcrFallback = isText && !!data.ocrImage && looksLikeBrokenPdfText(snippet.text);
 
       // Guard: if the PDF text layer is broken, keep the drop alive and OCR it instead.
