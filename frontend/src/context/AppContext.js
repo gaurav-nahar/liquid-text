@@ -23,7 +23,7 @@ import { PDFProvider, usePDF } from './PDFContext';
 import useLocalStorageSync from '../hooks/useLocalStorageSync';
 import useWorkspaceLoader from '../services/useWorkspaceLoader';
 import useWorkspaceSaver from '../services/useWorkspaceSaver';
-import api, { getPdfProxyUrl } from '../api/api';
+import api from '../api/api';
 import { getCurrentTimestampName } from '../utils/defaultNames';
 
 // ── Two exported contexts ─────────────────────────────────────────────────────
@@ -188,7 +188,7 @@ function AppInner({ children }) {
             return cache.get(normalized);
         }
 
-        const response = await fetch(getPdfProxyUrl(normalized), {
+        const response = await fetch(normalized, {
             method: "GET",
             cache: "no-store",
         });

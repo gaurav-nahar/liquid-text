@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
-import { getPdfProxyUrl } from "../../api/api";
 
 //it is used to select a pdf file from the user's computer or from a URL
 export default function PDFSelector({ onSelect }) {
@@ -57,7 +56,7 @@ export default function PDFSelector({ onSelect }) {
          Fetch PDF as Blob
       =============================== */
 
-      const response = await fetch(getPdfProxyUrl(url), {
+      const response = await fetch(url, {
         method: "GET",
         cache: "no-store",
         signal: controller.signal,
