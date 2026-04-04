@@ -718,6 +718,22 @@ function AppInner({ children }) {
         })();
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+    // Auto-load pdf_url param on mount if provided
+    const autoLoadedRef = useRef(false);
+    useEffect(() => {
+        if (autoLoadedRef.current) return;
+        const params = new URLSearchParams(window.location.search);
+        const pdfUrl = (params.get("pdf_url") || "").trim();
+        if (!pdfUrl) return;
+        autoLoadedRef.current = true;
+        const { diaryNo, diaryYear, establishment } = readCaseContextFromUrl();
+        const name = decodeURIComponent(pdfUrl.split("/").pop()) || "document.pdf";
+        openCasePdf({
+            diaryNo, diaryYear, establishment,
+            selectedPdf: { url: pdfUrl, name, originalPath: pdfUrl },
+        });
+    }, [openCasePdf]);
+
     // ── AppActionsContext: stable cross-context callbacks ─────────────────────
     // These are all useCallback with stable deps, so this value rarely changes.
     // Components that ONLY need handlers can use useAppActions() and avoid re-renders

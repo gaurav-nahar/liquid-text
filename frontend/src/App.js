@@ -2,7 +2,6 @@ import { useState, useRef, useEffect, useCallback, Component } from "react";
 import { useApp } from "./context/AppContext";
 import PDFViewer from "./components/pdf/PDFViewer";
 import Navbar from "./components/layout/Navbar";
-import PDFSelector from "./components/pdf/PDFSelector";
 import "./App.css";
 import "bootstrap-icons/font/bootstrap-icons.css";
 import Workspace from "./components/workspace/Workspace";
@@ -286,11 +285,7 @@ export default function App() {
 
     const renderWorkspaceView = () => {
         if (!selectedPDF && pdfTabs.length === 0) {
-            return (
-                <div className="app-empty-state">
-                    <PDFSelector onSelect={handlePDFSelect} />
-                </div>
-            );
+            return <div style={{ flex: 1, background: '#fff' }} />;
         }
 
         return (
@@ -375,19 +370,17 @@ export default function App() {
                                                 onMouseLeave={e => e.currentTarget.style.color = panel2TabId === tab.tabId ? (tab.color || "#007bff") : "#9ca3af"}
                                             >⊞</button>
                                         )}
-                                        {pdfTabs.length > 1 && (
-                                            <button
-                                                onClick={e => { e.stopPropagation(); closePdfTab(tab.tabId); }}
-                                                title="Close this PDF"
-                                                style={{
-                                                    border: "none", background: "none", cursor: "pointer",
-                                                    color: "#9ca3af", fontSize: 14, lineHeight: 1,
-                                                    padding: "0 2px", flexShrink: 0,
-                                                }}
-                                                onMouseEnter={e => e.currentTarget.style.color = "#ef4444"}
-                                                onMouseLeave={e => e.currentTarget.style.color = "#9ca3af"}
-                                            >×</button>
-                                        )}
+                                        <button
+                                            onClick={e => { e.stopPropagation(); closePdfTab(tab.tabId); }}
+                                            title="Close this PDF"
+                                            style={{
+                                                border: "none", background: "none", cursor: "pointer",
+                                                color: "#9ca3af", fontSize: 14, lineHeight: 1,
+                                                padding: "0 2px", flexShrink: 0,
+                                            }}
+                                            onMouseEnter={e => e.currentTarget.style.color = "#ef4444"}
+                                            onMouseLeave={e => e.currentTarget.style.color = "#9ca3af"}
+                                        >×</button>
                                     </div>
                                 ))}
                             <button

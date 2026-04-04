@@ -263,7 +263,7 @@ const DraggableNote = memo(({
           minHeight: "40px",
           display: "flex",
           flexDirection: "column",
-          overflow: "hidden",
+          overflow: "visible",
         }}
       >
         {isEditing && (snippet.type === "text" || !snippet.type) && (
@@ -380,6 +380,7 @@ const DraggableNote = memo(({
         {selected && onColorChange && (
           <div
             onPointerDown={e => e.stopPropagation()}
+            onMouseDown={e => e.stopPropagation()}
             style={{
               position: "absolute",
               bottom: -32,
