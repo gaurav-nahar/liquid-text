@@ -3,4 +3,4 @@
 
 -- Add file_data column to snippets
 ALTER TABLE snippets
-ADD COLUMN file_data BYTEA;
+ADD COLUMN IF NOT EXISTS file_data BYTEA;
