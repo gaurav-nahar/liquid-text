@@ -79,7 +79,8 @@ async def proxy_pdf(pdf_url: str = Query(..., alias="url")):
         
         logger.debug(f"proxy_pdf: fetching {url}")
         
-        async with httpx.AsyncClient(follow_redirects=True) as client:
+        async with httpx.AsyncClient(follow_redirects=True, verify=False) as client:
+
             try:
                 response = await client.get(
                     url, 

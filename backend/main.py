@@ -32,7 +32,7 @@ from src.models.workspace_pdf_model import WorkspacePdf  # noqa: ensure table is
 from src.routers.documentation_router import router as documentation_router
 from src.models.documentation_model import DocumentationPage  # noqa: ensure table is registered
 # NOTE: create_all disabled for production. Run migrations manually before deploying.
-Base.metadata.create_all(bind=engine)
+# Base.metadata.create_all(bind=engine)
 
 # FastAPI app
 app = FastAPI(title="Workspace Backend")
