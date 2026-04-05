@@ -395,11 +395,21 @@ function AppInner({ children }) {
         openCasePdfBusyRef.current = true;
         setLoading(true);
         try {
-            // Match case by diary_no + diary_year only — ignore establishment differences
-            // between URL params and postMessage payload (production apps may differ)
-            const sameCase = caseSessionRef.current.diaryNo === (diaryNo || "").trim()
-                && caseSessionRef.current.diaryYear === (diaryYear || "").trim()
-                && Boolean(caseSessionRef.current.workspaceId);
+            // Fall back to URL params if postMessage doesn't include diary context.
+            // Some parent apps omit diary_no/diary_year in the message even when the
+            // page URL has them, causing a false "different case" mismatch.
+            const urlCtx = readCaseContextFromUrl();
+            const effectiveDiaryNo = (diaryNo || "").trim() || urlCtx.diaryNo;
+            const effectiveDiaryYear = (diaryYear || "").trim() || urlCtx.diaryYear;
+
+            // Only clear tabs when it is GENUINELY a different case (diaryNo or diaryYear
+            // changed from what was previously initialized).  A missing workspaceId just
+            // means async initialization hasn't finished yet — that is NOT a case switch.
+            const prevInitialized = caseSessionRef.current.diaryNo !== null;
+            const isDifferentCase = prevInitialized && (
+                caseSessionRef.current.diaryNo !== effectiveDiaryNo ||
+                caseSessionRef.current.diaryYear !== effectiveDiaryYear
+            );
 
             const selectedOriginalPath = (selectedPdf.originalPath || selectedPdf.url || selectedPdf.name || "").trim();
             let existingTab = pdfTabs.find((tab) => tab.originalPath === selectedOriginalPath);
@@ -416,11 +426,17 @@ function AppInner({ children }) {
             });
 
             let caseWsId = caseSessionRef.current.workspaceId;
-            if (!sameCase) {
+            if (isDifferentCase) {
                 // Genuinely different case — clear tabs and re-init workspace
-                caseSessionRef.current = { key: buildCaseKey(diaryNo, diaryYear, establishment), diaryNo: (diaryNo || "").trim(), diaryYear: (diaryYear || "").trim(), workspacePdfId: null, workspaceId: null };
+                caseSessionRef.current = { key: buildCaseKey(effectiveDiaryNo, effectiveDiaryYear, establishment), diaryNo: effectiveDiaryNo, diaryYear: effectiveDiaryYear, workspacePdfId: null, workspaceId: null };
                 closePanel2();
                 setPdfTabs([]);
+                const ws = await ensureCaseWorkspace();
+                caseWsId = ws.id;
+            } else if (!caseWsId) {
+                // Same case but workspace not yet initialized (async init still in-flight).
+                // Initialize now WITHOUT clearing tabs.
+                caseSessionRef.current = { ...caseSessionRef.current, diaryNo: effectiveDiaryNo, diaryYear: effectiveDiaryYear };
                 const ws = await ensureCaseWorkspace();
                 caseWsId = ws.id;
             }
