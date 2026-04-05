@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback, Component } from "react";
 import { useApp } from "./context/AppContext";
 import PDFViewer from "./components/pdf/PDFViewer";
 import Navbar from "./components/layout/Navbar";
+import PDFSelector from "./components/pdf/PDFSelector";
 import "./App.css";
 import "bootstrap-icons/font/bootstrap-icons.css";
 import Workspace from "./components/workspace/Workspace";
@@ -285,7 +286,11 @@ export default function App() {
 
     const renderWorkspaceView = () => {
         if (!selectedPDF && pdfTabs.length === 0) {
-            return <div style={{ flex: 1, background: '#fff' }} />;
+            return (
+                <div className="app-empty-state">
+                    <PDFSelector onSelect={handlePDFSelect} />
+                </div>
+            );
         }
 
         return (
