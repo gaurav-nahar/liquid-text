@@ -286,10 +286,7 @@ export default function App() {
 
     const renderWorkspaceView = () => {
         if (!selectedPDF && pdfTabs.length === 0) {
-            return (
-                <div style={{ width: "100%", height: "100%", background: "#fff" }} />
-               
-            );
+            return <PDFSelector onSelect={handlePDFSelect} />;
         }
 
         return (
