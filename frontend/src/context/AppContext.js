@@ -108,8 +108,9 @@ function AppInner({ children }) {
         casePdfList, setCasePdfList,
     } = ui;
 
-    const caseSessionRef = useRef({ key: null, workspacePdfId: null });
+    const caseSessionRef = useRef({ key: null, workspacePdfId: null, workspaceId: null, diaryNo: null, diaryYear: null });
     const pdfBlobUrlCacheRef = useRef(new Map());
+    const openCasePdfBusyRef = useRef(false);  // separate from global loading so clicks aren't dropped
 
     // ── Build contextState for useWorkspaceLoader / useWorkspaceSaver ─────────
     // These services accept a flat object; we assemble it from all sub-contexts.
@@ -389,12 +390,16 @@ function AppInner({ children }) {
         resetTabs = false,
     }) => {
         if (!selectedPdf?.url) return;
-        if (loading) return;
+        if (openCasePdfBusyRef.current) return;
 
+        openCasePdfBusyRef.current = true;
         setLoading(true);
         try {
-            const caseKey = buildCaseKey(diaryNo, diaryYear, establishment);
-            const sameCase = caseSessionRef.current.key === caseKey && Boolean(caseSessionRef.current.workspaceId);
+            // Match case by diary_no + diary_year only — ignore establishment differences
+            // between URL params and postMessage payload (production apps may differ)
+            const sameCase = caseSessionRef.current.diaryNo === (diaryNo || "").trim()
+                && caseSessionRef.current.diaryYear === (diaryYear || "").trim()
+                && Boolean(caseSessionRef.current.workspaceId);
 
             const selectedOriginalPath = (selectedPdf.originalPath || selectedPdf.url || selectedPdf.name || "").trim();
             let existingTab = pdfTabs.find((tab) => tab.originalPath === selectedOriginalPath);
@@ -406,17 +411,16 @@ function AppInner({ children }) {
             }
 
             const resolvedUrl = existingTab?.url || await cachePdfBlobUrl(selectedPdf.url).catch(err => {
-            console.error(`[openCasePdf] Failed to load PDF from URL "${selectedPdf.url}":`, err);
-            throw err;
-        });
+                console.error(`[openCasePdf] Failed to load PDF from URL "${selectedPdf.url}":`, err);
+                throw err;
+            });
 
             let caseWsId = caseSessionRef.current.workspaceId;
             if (!sameCase) {
-                caseSessionRef.current = { key: caseKey, workspacePdfId: null, workspaceId: null };
-                if (resetTabs) {
-                    closePanel2();
-                    setPdfTabs([]);
-                }
+                // Genuinely different case — clear tabs and re-init workspace
+                caseSessionRef.current = { key: buildCaseKey(diaryNo, diaryYear, establishment), diaryNo: (diaryNo || "").trim(), diaryYear: (diaryYear || "").trim(), workspacePdfId: null, workspaceId: null };
+                closePanel2();
+                setPdfTabs([]);
                 const ws = await ensureCaseWorkspace();
                 caseWsId = ws.id;
             }
@@ -465,10 +469,11 @@ function AppInner({ children }) {
         } catch (err) {
             console.error("Error opening shared-case PDF:", err);
         } finally {
+            openCasePdfBusyRef.current = false;
             setLoading(false);
         }
     }, [
-        loading, pdfTabs, setLoading, setPdfTabs, activatePdfTab,
+        pdfTabs, setLoading, setPdfTabs, activatePdfTab,
         PDF_TAB_COLORS, cachePdfBlobUrl, ensureCaseWorkspace, closePanel2, setCasePdfList
     ]);
 
@@ -671,9 +676,16 @@ function AppInner({ children }) {
     }, [handleUndo, handleRedo]);
 
     useEffect(() => {
+        // Deduplicate rapid retries (e.g. the 450ms second dispatch from parent apps):
+        // only open a PDF if its URL differs from the one currently being opened.
+        let lastOpenedUrl = null;
+
         const onMessage = (event) => {
             const data = event.data;
             if (!data || data.type !== "LIQUIDTEXT_OPEN_CASE_PDF") return;
+            const pdfUrl = data.selected_pdf?.url || data.selected_pdf?.originalPath || "";
+            if (pdfUrl && pdfUrl === lastOpenedUrl && openCasePdfBusyRef.current) return;
+            lastOpenedUrl = pdfUrl;
 
             openCasePdf({
                 diaryNo: data.diary_no,

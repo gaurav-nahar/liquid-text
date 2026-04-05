@@ -287,9 +287,8 @@ export default function App() {
     const renderWorkspaceView = () => {
         if (!selectedPDF && pdfTabs.length === 0) {
             return (
-                <div className="app-empty-state">
-                    <PDFSelector onSelect={handlePDFSelect} />
-                </div>
+                <div style={{ width: "100%", height: "100%", background: "#fff" }} />
+               
             );
         }
 
@@ -328,84 +327,82 @@ export default function App() {
                         style={{ width: panel2PdfUrl ? `${pdfPanelWidth + pdf2PanelWidth}%` : `${pdfPanelWidth}%` }}
                     >
                         <span className="context-label" style={{ paddingLeft: '16px', flexShrink: 0 }}>Files:</span>
-                        <div className="workspace-tabs-scroll" style={{ paddingLeft: 0, gap: 2 }}>
-                            <>
-                                {pdfTabs.map(tab => (
-                                    <div
-                                        key={tab.tabId}
-                                        className={`workspace-tab-item ${tab.tabId === activeTabId ? 'active' : ''}`}
-                                        onClick={() => switchPdfTab(tab)}
-                                        title={tab.name}
-                                        style={{
-                                            marginTop: 6,
-                                            display: "flex", alignItems: "center", gap: 5,
-                                            paddingRight: 6,
-                                            maxWidth: 180,
-                                            cursor: "pointer",
-                                            background: tab.tabId === activeTabId ? "#e8f4ff" : "transparent",
-                                            borderRadius: 6,
-                                        }}
-                                    >
-                                        <div style={{
-                                            width: 8, height: 8, borderRadius: "50%", flexShrink: 0,
-                                            background: tab.color || "#9ca3af",
-                                            boxShadow: tab.tabId === activeTabId ? `0 0 0 2px ${tab.color || "#9ca3af"}44` : "none",
-                                        }} />
-                                        <span className="tab-name" style={{
-                                            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                                            fontWeight: tab.tabId === activeTabId ? 600 : 400,
-                                            color: tab.tabId === activeTabId ? (tab.color || "#0057c8") : "#374151",
-                                            fontSize: 12,
-                                        }}>{tab.name}</span>
-                                        {pdfTabs.length > 1 && (
-                                            <button
-                                                onClick={e => {
-                                                    e.stopPropagation();
-                                                    if (panel2TabId === tab.tabId) { closePanel2(); }
-                                                    else { openInPanel2(tab); }
-                                                }}
-                                                title={panel2TabId === tab.tabId ? "Close right panel" : "Open in right panel (side-by-side)"}
-                                                style={{
-                                                    border: "none", background: "none", cursor: "pointer",
-                                                    color: panel2TabId === tab.tabId ? (tab.color || "#007bff") : "#9ca3af",
-                                                    fontSize: 11, lineHeight: 1, padding: "0 2px", flexShrink: 0,
-                                                    fontWeight: 700,
-                                                }}
-                                                onMouseEnter={e => e.currentTarget.style.color = tab.color || "#007bff"}
-                                                onMouseLeave={e => e.currentTarget.style.color = panel2TabId === tab.tabId ? (tab.color || "#007bff") : "#9ca3af"}
-                                            >⊞</button>
-                                        )}
+                        <div
+                            className="workspace-tabs-scroll"
+                            style={{
+                                paddingLeft: 0, gap: 2,
+                                overflowX: "auto", overflowY: "hidden",
+                                flexWrap: "nowrap",
+                                scrollbarWidth: "none",        /* Firefox */
+                                msOverflowStyle: "none",       /* IE */
+                            }}
+                        >
+                            {pdfTabs.map(tab => (
+                                <div
+                                    key={tab.tabId}
+                                    className={`workspace-tab-item ${tab.tabId === activeTabId ? 'active' : ''}`}
+                                    onClick={() => switchPdfTab(tab)}
+                                    title={tab.name}
+                                    style={{
+                                        marginTop: 4,
+                                        display: "flex", alignItems: "center", gap: 3,
+                                        padding: "2px 4px 2px 6px",
+                                        maxWidth: 130,
+                                        minWidth: 60,
+                                        flexShrink: 0,
+                                        cursor: "pointer",
+                                        background: tab.tabId === activeTabId ? "#e8f4ff" : "transparent",
+                                        borderRadius: 5,
+                                    }}
+                                >
+                                    <div style={{
+                                        width: 6, height: 6, borderRadius: "50%", flexShrink: 0,
+                                        background: tab.color || "#9ca3af",
+                                        boxShadow: tab.tabId === activeTabId ? `0 0 0 2px ${tab.color || "#9ca3af"}44` : "none",
+                                    }} />
+                                    <span className="tab-name" style={{
+                                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                                        fontWeight: tab.tabId === activeTabId ? 600 : 400,
+                                        color: tab.tabId === activeTabId ? (tab.color || "#0057c8") : "#374151",
+                                        fontSize: 11,
+                                        flex: 1,
+                                    }}>{tab.name}</span>
+                                    {pdfTabs.length > 1 && (
                                         <button
-                                            onClick={e => { e.stopPropagation(); closePdfTab(tab.tabId); }}
-                                            title="Close this PDF"
+                                            onClick={e => {
+                                                e.stopPropagation();
+                                                if (panel2TabId === tab.tabId) { closePanel2(); }
+                                                else { openInPanel2(tab); }
+                                            }}
+                                            title={panel2TabId === tab.tabId ? "Close right panel" : "Open in right panel (side-by-side)"}
                                             style={{
                                                 border: "none", background: "none", cursor: "pointer",
-                                                color: "#9ca3af", fontSize: 14, lineHeight: 1,
-                                                padding: "0 2px", flexShrink: 0,
+                                                color: panel2TabId === tab.tabId ? (tab.color || "#007bff") : "#9ca3af",
+                                                fontSize: 10, lineHeight: 1, padding: "0 1px", flexShrink: 0,
+                                                fontWeight: 700,
                                             }}
-                                            onMouseEnter={e => e.currentTarget.style.color = "#ef4444"}
-                                            onMouseLeave={e => e.currentTarget.style.color = "#9ca3af"}
-                                        >×</button>
-                                    </div>
-                                ))}
-                            <button
-                                onClick={() => setShowOpenModal(true)}
-                                title="Open PDF in new tab"
-                                style={{
-                                    marginTop: 6, height: 28, width: 28, border: "1px dashed #d1d5db",
-                                    borderRadius: 6, background: "transparent", cursor: "pointer",
-                                    color: "#9ca3af", fontSize: 18, display: "flex",
-                                    alignItems: "center", justifyContent: "center", flexShrink: 0,
-                                }}
-                                onMouseEnter={e => { e.currentTarget.style.borderColor = "#007bff"; e.currentTarget.style.color = "#007bff"; }}
-                                onMouseLeave={e => { e.currentTarget.style.borderColor = "#d1d5db"; e.currentTarget.style.color = "#9ca3af"; }}
-                            >+</button>
-                            </>
+                                            onMouseEnter={e => e.currentTarget.style.color = tab.color || "#007bff"}
+                                            onMouseLeave={e => e.currentTarget.style.color = panel2TabId === tab.tabId ? (tab.color || "#007bff") : "#9ca3af"}
+                                        >⊞</button>
+                                    )}
+                                    <button
+                                        onClick={e => { e.stopPropagation(); closePdfTab(tab.tabId); }}
+                                        title="Close this PDF"
+                                        style={{
+                                            border: "none", background: "none", cursor: "pointer",
+                                            color: "#9ca3af", fontSize: 13, lineHeight: 1,
+                                            padding: "0 1px", flexShrink: 0,
+                                        }}
+                                        onMouseEnter={e => e.currentTarget.style.color = "#ef4444"}
+                                        onMouseLeave={e => e.currentTarget.style.color = "#9ca3af"}
+                                    >×</button>
+                                </div>
+                            ))}
                         </div>
                     </div>
 
                     <div className="workspace-tabs-container">
-                        <span className="context-label">Workspaces:</span>
+                        {/* <span className="context-label">Workspaces:</span> */}
                         <div className="workspace-tabs-scroll">
                             {workspaces.map(ws => (
                                 <div

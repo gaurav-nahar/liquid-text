@@ -152,11 +152,7 @@ export default function PDFSelector({ onSelect }) {
         padding: "20px",
       }}
     >
-      {loading ? (
-        <div style={{ textAlign: "center", fontSize: "1.2rem", color: "#666" }}>
-          Auto-loading PDF from link...
-        </div>
-      ) : (
+      {!loading && (
         <>
           {/* <h2>Please choose a PDF to continue</h2> */}
 
