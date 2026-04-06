@@ -25,7 +25,7 @@ export const UIProvider = ({ children }) => {
     // Session
     const [loading, setLoading] = useState(false);
     const [userId, setUserId] = useState(null);
-    const [autosaveInterval, setAutosaveInterval] = useState(5000);
+    const [autosaveInterval, setAutosaveInterval] = useState(0); // Default: Off — user must enable explicitly
 
     // Zoom / layout
     const [zoomLevel, setZoomLevel] = useState(1);

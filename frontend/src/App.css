@@ -801,10 +801,8 @@
   flex: 1;
   display: flex;
   align-items: center;
-  overflow: hidden;
-  /* Container hides scrollbar */
+  overflow: visible; /* must NOT be hidden — inner .workspace-tabs-scroll needs overflow-x: auto */
   background: #ffffff;
-  /* Track background */
 }
 
 .workspace-tabs-scroll {

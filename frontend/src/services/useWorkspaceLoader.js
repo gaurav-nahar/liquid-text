@@ -43,6 +43,7 @@ const useWorkspaceLoader = (context) => {
                     api.loadWorkspaceGroups(activeWorkspace.id),
                     api.loadCrossPdfLinks(activeWorkspace.id),
                 ]);
+                // loadWorkspaceDataByWorkspace returns empty pdf annotation arrays if pdfId is null
                 const {
                     snippets: snipData,
                     boxes: boxData,
@@ -206,7 +207,9 @@ const useWorkspaceLoader = (context) => {
 
             } catch (err) {
                 console.error("❌ Error loading workspace:", err);
-                alert("Error loading workspace.");
+                // NOTE: Do NOT use alert() here — it blocks the parent iframe app
+                // Toast is not available in this hook; errors are surfaced in the console
+                // and the loading spinner will clear on its own.
             } finally {
                 setLoading(false);
                 setIsDirty(appliedPendingSummary);

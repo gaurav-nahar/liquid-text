@@ -84,16 +84,34 @@ const loadWorkspaceData = async (pdfId, workspaceId) => {
 
 // 🟩 LOAD WORKSPACE by workspace_id only — supports multi-PDF workspaces
 const loadWorkspaceDataByWorkspace = async (pdfId, workspaceId) => {
-    const [snippets, boxes, lines, connections, highlights, pdfTexts, pdfDrawingLines, pdfBrushHighlights] = await Promise.all([
+    // Workspace-level data (snippets, boxes, lines, connections) always loaded by workspaceId.
+    // PDF-level annotations (highlights, texts, drawing) require a valid pdfId.
+    // Guard: if pdfId is null/undefined (case workspace before first PDF tab selected),
+    // skip PDF annotation requests entirely to avoid 422 from /highlights/pdf/undefined.
+    const workspaceRequests = [
         api.get(`/snippets/workspace/${workspaceId}`),
         api.get(`/boxes/workspace/${workspaceId}`),
         api.get(`/lines/workspace/${workspaceId}`),
         api.get(`/connections/workspace/${workspaceId}`),
-        api.get(`/highlights/pdf/${pdfId}`),
-        api.get(`/pdf_texts/pdf/${pdfId}`),
-        api.get(`/pdf_drawing_lines/pdf/${pdfId}`),
-        api.get(`/pdf_brush_highlights/pdf/${pdfId}`),
-    ]);
+    ];
+
+    const emptyResponse = { data: [] };
+    const pdfRequests = pdfId
+        ? [
+            api.get(`/highlights/pdf/${pdfId}`),
+            api.get(`/pdf_texts/pdf/${pdfId}`),
+            api.get(`/pdf_drawing_lines/pdf/${pdfId}`),
+            api.get(`/pdf_brush_highlights/pdf/${pdfId}`),
+          ]
+        : [
+            Promise.resolve(emptyResponse),
+            Promise.resolve(emptyResponse),
+            Promise.resolve(emptyResponse),
+            Promise.resolve(emptyResponse),
+          ];
+
+    const [snippets, boxes, lines, connections, highlights, pdfTexts, pdfDrawingLines, pdfBrushHighlights] =
+        await Promise.all([...workspaceRequests, ...pdfRequests]);
 
     return {
         snippets: snippets.data,

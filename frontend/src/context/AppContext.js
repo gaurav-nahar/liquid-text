@@ -111,6 +111,9 @@ function AppInner({ children }) {
     const caseSessionRef = useRef({ key: null, workspacePdfId: null, workspaceId: null, diaryNo: null, diaryYear: null });
     const pdfBlobUrlCacheRef = useRef(new Map());
     const openCasePdfBusyRef = useRef(false);  // separate from global loading so clicks aren't dropped
+    // Always-fresh mirror of pdfTabs for use inside async callbacks (avoids stale closures)
+    const tabsRef = useRef([]);
+    useEffect(() => { tabsRef.current = pdfTabs; }, [pdfTabs]);
 
     // ── Build contextState for useWorkspaceLoader / useWorkspaceSaver ─────────
     // These services accept a flat object; we assemble it from all sub-contexts.
@@ -396,31 +399,53 @@ function AppInner({ children }) {
         setLoading(true);
         try {
             // Fall back to URL params if postMessage doesn't include diary context.
-            // Some parent apps omit diary_no/diary_year in the message even when the
-            // page URL has them, causing a false "different case" mismatch.
             const urlCtx = readCaseContextFromUrl();
             const effectiveDiaryNo = (diaryNo || "").trim() || urlCtx.diaryNo;
             const effectiveDiaryYear = (diaryYear || "").trim() || urlCtx.diaryYear;
 
-            // Only clear tabs when it is GENUINELY a different case (diaryNo or diaryYear
-            // changed from what was previously initialized).  A missing workspaceId just
-            // means async initialization hasn't finished yet — that is NOT a case switch.
+            const selectedOriginalPath = (selectedPdf.originalPath || selectedPdf.url || selectedPdf.name || "").trim();
+
+            // ── Use tabsRef (always-fresh) to avoid stale-closure bug ──────────
+            // pdfTabs captured in the closure may be empty even when tabs exist,
+            // because React state updates are async. tabsRef is always current.
+            const currentTabs = tabsRef.current;
+            let existingTab = currentTabs.find(
+                (tab) => tab.originalPath === selectedOriginalPath
+            );
+
+            // ── If same diary & same PDF already open — just switch to it ──────
+            // This is the primary path after the first PDF load: no re-init needed.
+            if (existingTab) {
+                activatePdfTab(existingTab);
+                openCasePdfBusyRef.current = false;
+                setLoading(false);
+                return;
+            }
+
+            // ── Determine if this is a genuinely different case ────────────────
+            // A missing workspaceId means async init hasn't finished — NOT a case switch.
             const prevInitialized = caseSessionRef.current.diaryNo !== null;
             const isDifferentCase = prevInitialized && (
                 caseSessionRef.current.diaryNo !== effectiveDiaryNo ||
                 caseSessionRef.current.diaryYear !== effectiveDiaryYear
             );
 
-            const selectedOriginalPath = (selectedPdf.originalPath || selectedPdf.url || selectedPdf.name || "").trim();
-            let existingTab = pdfTabs.find((tab) => tab.originalPath === selectedOriginalPath);
+            // Also check by pdfId using cached list before hitting the backend
+            let nextPdfId = null;
+            // Get or register PDF on backend
+            const openRes = await api.openPdf(selectedPdf.name || "document.pdf", selectedOriginalPath);
+            nextPdfId = openRes.data.id;
 
-            let nextPdfId = existingTab?.pdfId || null;
-            if (!nextPdfId) {
-                const openRes = await api.openPdf(selectedPdf.name || "document.pdf", selectedOriginalPath);
-                nextPdfId = openRes.data.id;
+            // Check again by pdfId (race condition: two rapid clicks for same PDF)
+            const existingTabByPdfId = tabsRef.current.find((tab) => tab.pdfId === nextPdfId);
+            if (existingTabByPdfId) {
+                activatePdfTab(existingTabByPdfId);
+                openCasePdfBusyRef.current = false;
+                setLoading(false);
+                return;
             }
 
-            const resolvedUrl = existingTab?.url || await cachePdfBlobUrl(selectedPdf.url).catch(err => {
+            const resolvedUrl = await cachePdfBlobUrl(selectedPdf.url).catch(err => {
                 console.error(`[openCasePdf] Failed to load PDF from URL "${selectedPdf.url}":`, err);
                 throw err;
             });
@@ -431,18 +456,18 @@ function AppInner({ children }) {
                 caseSessionRef.current = { key: buildCaseKey(effectiveDiaryNo, effectiveDiaryYear, establishment), diaryNo: effectiveDiaryNo, diaryYear: effectiveDiaryYear, workspacePdfId: null, workspaceId: null };
                 closePanel2();
                 setPdfTabs([]);
+                tabsRef.current = [];
                 const ws = await ensureCaseWorkspace();
                 caseWsId = ws.id;
             } else if (!caseWsId) {
                 // Same case but workspace not yet initialized (async init still in-flight).
-                // Initialize now WITHOUT clearing tabs.
                 caseSessionRef.current = { ...caseSessionRef.current, diaryNo: effectiveDiaryNo, diaryYear: effectiveDiaryYear };
                 const ws = await ensureCaseWorkspace();
                 caseWsId = ws.id;
             }
 
             // Register this PDF with the case workspace (persists the PDF list)
-            if (caseWsId && nextPdfId && !existingTab) {
+            if (caseWsId && nextPdfId) {
                 api.registerPdfInWorkspace(caseWsId, nextPdfId, selectedPdf.name || "document.pdf", selectedOriginalPath)
                     .then(() => {
                         setCasePdfList(prev => {
@@ -453,34 +478,25 @@ function AppInner({ children }) {
                     .catch(e => console.error("PDF registration failed:", e));
             }
 
-            const nextTabId = existingTab?.tabId || `tab-${nextPdfId}`;
-            activatePdfTab({
+            const nextTabId = `tab-${nextPdfId}`;
+            const color = PDF_TAB_COLORS[tabsRef.current.length % PDF_TAB_COLORS.length];
+            const newTab = {
                 tabId: nextTabId,
-                pdfId: nextPdfId,
                 url: resolvedUrl,
                 name: selectedPdf.name || "document.pdf",
-            });
+                pdfId: nextPdfId,
+                originalPath: selectedOriginalPath,
+                color,
+            };
 
+            activatePdfTab(newTab);
             setPdfTabs(prev => {
+                // Final dedup guard
                 const already = prev.find(
                     (tab) => tab.pdfId === nextPdfId || tab.originalPath === selectedOriginalPath
                 );
-                if (already) {
-                    return prev.map(tab => (
-                        tab.tabId === already.tabId
-                            ? { ...tab, pdfId: nextPdfId, url: resolvedUrl, name: selectedPdf.name || tab.name, originalPath: selectedOriginalPath }
-                            : tab
-                    ));
-                }
-                const color = PDF_TAB_COLORS[prev.length % PDF_TAB_COLORS.length];
-                return [...prev, {
-                    tabId: nextTabId,
-                    url: resolvedUrl,
-                    name: selectedPdf.name || "document.pdf",
-                    pdfId: nextPdfId,
-                    originalPath: selectedOriginalPath,
-                    color,
-                }];
+                if (already) return prev;
+                return [...prev, newTab];
             });
         } catch (err) {
             console.error("Error opening shared-case PDF:", err);
@@ -489,7 +505,7 @@ function AppInner({ children }) {
             setLoading(false);
         }
     }, [
-        pdfTabs, setLoading, setPdfTabs, activatePdfTab,
+        setLoading, setPdfTabs, activatePdfTab,
         PDF_TAB_COLORS, cachePdfBlobUrl, ensureCaseWorkspace, closePanel2, setCasePdfList
     ]);
 

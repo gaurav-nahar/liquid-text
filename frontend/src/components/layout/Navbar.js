@@ -333,20 +333,36 @@ export default function Navbar() {
                     <button className={`tool-btn ${tool === TOOL_MODES.DRAW_LINE ? "active" : ""}`} onClick={() => setTool(TOOL_MODES.DRAW_LINE)} title="Connect Notes (workspace)">{icons.connection}</button>
                     <button className={`tool-btn ${tool === TOOL_MODES.PDF_CONNECT ? "active" : ""}`} onClick={() => setTool(TOOL_MODES.PDF_CONNECT)} title="PDF Connect Line (click two points in PDF)">{icons.pdfConnect}</button>
                     <button className={`tool-btn ${tool === TOOL_MODES.ADD_BOX ? "active" : ""}`} onClick={() => setTool(TOOL_MODES.ADD_BOX)} title="Add Text Box">{icons.textBox}</button>
-                    <button className={`tool-btn ${tool === TOOL_MODES.PEN ? "active" : ""}`} onClick={() => setTool(TOOL_MODES.PEN)} title="Pen">{icons.pen}</button>
-                    <button className={`tool-btn ${tool === TOOL_MODES.ERASER ? "active" : ""}`} onClick={() => setTool(TOOL_MODES.ERASER)} title="Eraser">{icons.eraser}</button>
 
-                    {tool === TOOL_MODES.PEN && (
-                        <div style={{ display: 'flex', gap: 6, marginLeft: 8, paddingLeft: 8, borderLeft: '1px solid #eee', alignItems: 'center' }}>
-                            {['black', '#ff3b30', '#007aff', '#34c759', '#ffcc00'].map(color => (
-                                <div key={color} onClick={() => setPdfDrawingColor(color)} style={{
-                                    width: 18, height: 18, borderRadius: '50%', backgroundColor: color, cursor: 'pointer',
-                                    border: pdfDrawingColor === color ? '2px solid #555' : '1px solid #ddd',
-                                    transform: pdfDrawingColor === color ? 'scale(1.2)' : 'none',
-                                }} />
-                            ))}
-                        </div>
-                    )}
+                    {/* Pen tool + floating color picker (same popover pattern as HIGHLIGHT_BRUSH) */}
+                    <div style={{ position: 'relative' }}>
+                        <button className={`tool-btn ${tool === TOOL_MODES.PEN ? "active" : ""}`} onClick={() => setTool(prev => prev === TOOL_MODES.PEN ? TOOL_MODES.SELECT : TOOL_MODES.PEN)} title="Pen">{icons.pen}</button>
+                        {tool === TOOL_MODES.PEN && (
+                            <div style={{
+                                position: 'absolute', top: '100%', left: '50%',
+                                transform: 'translateX(-50%)',
+                                marginTop: 6,
+                                display: 'flex', gap: 6, background: 'white',
+                                padding: '6px 10px', borderRadius: 20,
+                                border: '1px solid #ddd', boxShadow: '0 4px 12px rgba(0,0,0,0.12)',
+                                zIndex: 600,
+                                whiteSpace: 'nowrap',
+                            }}>
+                                {['#000000', '#ff3b30', '#007aff', '#34c759', '#ffcc00', '#ff9500', '#af52de'].map(color => (
+                                    <div key={color} onClick={() => setPdfDrawingColor(color)} style={{
+                                        width: 18, height: 18, borderRadius: '50%', backgroundColor: color,
+                                        cursor: 'pointer',
+                                        border: pdfDrawingColor === color ? '2px solid #333' : '1.5px solid #ddd',
+                                        transform: pdfDrawingColor === color ? 'scale(1.25)' : 'none',
+                                        transition: 'transform 0.15s',
+                                        flexShrink: 0,
+                                    }} />
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
+                    <button className={`tool-btn ${tool === TOOL_MODES.ERASER ? "active" : ""}`} onClick={() => setTool(TOOL_MODES.ERASER)} title="Eraser">{icons.eraser}</button>
                 </div>
             </div>
 

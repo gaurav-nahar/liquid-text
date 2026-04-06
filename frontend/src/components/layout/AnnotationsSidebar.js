@@ -156,7 +156,7 @@ export default function AnnotationsSidebar() {
 
         loadWorkspaceAnnotations();
         return () => { cancelled = true; };
-    }, [caseContext.hasCaseContext, casePdfList, allAnnotations.length, pdfId]);
+    }, [caseContext.hasCaseContext, casePdfList]); // NOTE: pdfId intentionally omitted — loadWorkspaceAnnotations loads ALL PDFs, not just the active one
 
     const getPdfName = (pdfId) => {
         const tab = (pdfTabs || []).find(t => String(t.pdfId) === String(pdfId));
@@ -195,20 +195,21 @@ export default function AnnotationsSidebar() {
 
     const visibleAnnotations = caseContext.hasCaseContext ? caseVisibleAnnotations : allAnnotations;
 
-    // Auto-open when a NEW annotation is added (not on initial load)
+    // Auto-open ONLY when the currently active PDF gets a new annotation (not other PDFs)
     const hasInitializedRef = useRef(false);
-    const prevLengthRef = useRef(0);
+    const prevActivePdfAnnotLengthRef = useRef(0);
     useEffect(() => {
+        const liveCount = allAnnotations.length; // only the active PDF's live annotations
         if (!hasInitializedRef.current) {
             hasInitializedRef.current = true;
-            prevLengthRef.current = visibleAnnotations.length;
+            prevActivePdfAnnotLengthRef.current = liveCount;
             return;
         }
-        if (visibleAnnotations.length > prevLengthRef.current) {
+        if (liveCount > prevActivePdfAnnotLengthRef.current) {
             setShowHighlightsList(true);
         }
-        prevLengthRef.current = visibleAnnotations.length;
-    }, [visibleAnnotations.length, setShowHighlightsList]);
+        prevActivePdfAnnotLengthRef.current = liveCount;
+    }, [allAnnotations.length, setShowHighlightsList]);
 
     // Auto-open and mark collapsed when a new page connection line is added
     const prevConnLengthRef = useRef(0);

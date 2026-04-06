@@ -71,11 +71,18 @@ app.add_middleware(
         "http://172.25.0.235:8005/",
         "https://172.25.0.235:3001/",
         "https://103.200.78.51",
+        # Production servers — 172.21.238.33
         "https://172.21.238.33:3030",
         "http://172.21.238.33:3030",
+        # Production servers — 172.21.238.34 (ALL ports used in deployment)
         "https://172.21.238.34:3001",
         "http://172.21.238.34:3001",
-
+        "https://172.21.238.34:8005",   # ← MISSING: frontend REACT_APP_API_URL points here
+        "http://172.21.238.34:8005",    # ← MISSING: http fallback
+        "https://172.21.238.34:3000",
+        "http://172.21.238.34:3000",
+        "https://172.21.238.34",        # bare host (when iframe uses default port)
+        "http://172.21.238.34",
     ],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
