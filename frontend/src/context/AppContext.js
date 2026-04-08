@@ -773,15 +773,30 @@ function AppInner({ children }) {
                 caseSessionRef.current.workspaceId = ws.id;
 
                 const pdfsRes = await api.listWorkspacePdfs(ws.id);
-                setCasePdfList(pdfsRes.data || []);
+                const savedPdfs = pdfsRes.data || [];
+                setCasePdfList(savedPdfs);
 
                 // Auto-load PDF from URL if present
                 const { pdfUrl, pdfName, diaryNo, diaryYear, establishment } = readCaseContextFromUrl();
+                
+                // RESTORE ALL PREVIOUS TABS SEQUENTIALLY
+                if (savedPdfs.length > 0) {
+                   const openedUrls = new Set();
+                   for (const p of savedPdfs) {
+                       if (!openedUrls.has(p.url)) {
+                           await openCasePdf({
+                               diaryNo, diaryYear, establishment,
+                               selectedPdf: { url: p.url, name: p.name, id: p.id, originalPath: p.url }
+                           });
+                           openedUrls.add(p.url);
+                       }
+                   }
+                }
+
+                // If a specific PDF was passed in URL, make sure it's opened/active
                 if (pdfUrl) {
                     openCasePdf({
-                        diaryNo,
-                        diaryYear,
-                        establishment,
+                        diaryNo, diaryYear, establishment,
                         selectedPdf: { url: pdfUrl, name: pdfName, originalPath: pdfUrl }
                     });
                 }

@@ -25,7 +25,7 @@ export const UIProvider = ({ children }) => {
     // Session
     const [loading, setLoading] = useState(false);
     const [userId, setUserId] = useState(null);
-    const [autosaveInterval, setAutosaveInterval] = useState(0); // Default: Off — user must enable explicitly
+    const [autosaveInterval, setAutosaveInterval] = useState(30000); // Default: 30s to protect against iframe reloads
 
     // Zoom / layout
     const [zoomLevel, setZoomLevel] = useState(1);
