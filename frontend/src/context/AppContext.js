@@ -42,10 +42,15 @@ const readCaseContextFromUrl = () => {
     const diaryNo = (params.get("diary_no") || "").trim();
     const diaryYear = (params.get("diary_year") || "").trim();
     const establishment = (params.get("establishment") || "").trim();
+    const pdfUrl = (params.get("pdf_url") || "").trim();
+    const pdfName = (params.get("pdf_name") || "").trim() || (pdfUrl ? pdfUrl.split('/').pop() : "");
+    
     return {
         diaryNo,
         diaryYear,
         establishment,
+        pdfUrl,
+        pdfName,
         caseKey: buildCaseKey(diaryNo, diaryYear, establishment),
         hasCaseContext: Boolean(diaryNo || diaryYear || establishment),
     };
@@ -217,14 +222,27 @@ function AppInner({ children }) {
         return objectUrl;
     }, []);
 
+    // In-flight guard: prevents duplicate workspace creation on rapid double-clicks
+    // If two PDF clicks both reach ensureCaseWorkspace simultaneously, only one
+    // API call goes to the backend — both await the same promise.
+    const ensureCaseWsPromiseRef = useRef(null);
     const ensureCaseWorkspace = useCallback(async () => {
-        const wsRes = await api.getCaseWorkspace();
-        const ws = wsRes.data;
-        setWorkspaces([ws]);
-        setActiveWorkspace(ws);
-        caseSessionRef.current.workspaceId = ws.id;
-        return ws;
+        if (ensureCaseWsPromiseRef.current) {
+            return ensureCaseWsPromiseRef.current;
+        }
+        const promise = api.getCaseWorkspace().then(wsRes => {
+            const ws = wsRes.data;
+            setWorkspaces([ws]);
+            setActiveWorkspace(ws);
+            caseSessionRef.current.workspaceId = ws.id;
+            return ws;
+        }).finally(() => {
+            ensureCaseWsPromiseRef.current = null;
+        });
+        ensureCaseWsPromiseRef.current = promise;
+        return promise;
     }, [setWorkspaces, setActiveWorkspace]);
+
 
     const requestSummaryText = useCallback(async (text) => {
         const startRes = await api.startPdfSummary(text);
@@ -756,6 +774,17 @@ function AppInner({ children }) {
 
                 const pdfsRes = await api.listWorkspacePdfs(ws.id);
                 setCasePdfList(pdfsRes.data || []);
+
+                // Auto-load PDF from URL if present
+                const { pdfUrl, pdfName, diaryNo, diaryYear, establishment } = readCaseContextFromUrl();
+                if (pdfUrl) {
+                    openCasePdf({
+                        diaryNo,
+                        diaryYear,
+                        establishment,
+                        selectedPdf: { url: pdfUrl, name: pdfName, originalPath: pdfUrl }
+                    });
+                }
             } catch (e) {
                 console.error("Case workspace init failed:", e);
             }

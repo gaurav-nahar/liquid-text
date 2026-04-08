@@ -348,7 +348,7 @@ export default function Navbar() {
                                 zIndex: 600,
                                 whiteSpace: 'nowrap',
                             }}>
-                                {['#000000', '#ff3b30', '#007aff', '#34c759', '#ffcc00', '#ff9500', '#af52de'].map(color => (
+                                {['#000000', '#ff3b30', '#007aff', '#34c759', '#ffcc00', '#ff9500', '#af52de', '#5856d6', '#8e8e93', '#000080'].map(color => (
                                     <div key={color} onClick={() => setPdfDrawingColor(color)} style={{
                                         width: 18, height: 18, borderRadius: '50%', backgroundColor: color,
                                         cursor: 'pointer',

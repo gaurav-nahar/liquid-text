@@ -9,12 +9,28 @@ class WorkspaceRepo:
         return db.query(Workspace).filter(Workspace.pdf_id == pdf_id, Workspace.user_id == user_id).all()
 
     @staticmethod
+    def _null_safe_eq(column, value):
+        """Return a SQLAlchemy filter clause that handles NULL correctly.
+        
+        PostgreSQL: NULL = NULL -> FALSE (always), so we must use IS NULL
+        when the value is None. Without this, get_or_create creates a NEW
+        workspace on every call instead of finding the existing one.
+        """
+        if value is None:
+            return column.is_(None)
+        return column == value
+
+    @staticmethod
     def get_or_create_for_case(db: Session, diary_no: str, diary_year: str, establishment: str, user_id: str):
-        """Find or create a single shared workspace for a diary case (pdf_id=None)."""
+        """Find or create a single shared workspace for a diary case (pdf_id=None).
+
+        Uses null-safe comparisons because PostgreSQL NULL == NULL -> FALSE.
+        Without this, every call with diary_no/year=None creates a new workspace.
+        """
         ws = db.query(Workspace).filter(
-            Workspace.diary_no == diary_no,
-            Workspace.diary_year == diary_year,
-            Workspace.establishment == establishment,
+            WorkspaceRepo._null_safe_eq(Workspace.diary_no, diary_no),
+            WorkspaceRepo._null_safe_eq(Workspace.diary_year, diary_year),
+            WorkspaceRepo._null_safe_eq(Workspace.establishment, establishment),
             Workspace.user_id == user_id,
             Workspace.pdf_id.is_(None),
         ).first()
