@@ -170,6 +170,9 @@ export default function Navbar() {
         // Bookmarks
         bookmarks, showBookmarks, setShowBookmarks,
         handleAddBookmark,
+        // Color picker toggles
+        showPenColors, setShowPenColors,
+        showHighlighterColors, setShowHighlighterColors,
     } = useApp();
 
     const saving = savingWorkspace || savingPdf;
@@ -295,10 +298,18 @@ export default function Navbar() {
                     <div style={{ position: 'relative' }}>
                         <button
                             className={`tool-btn ${tool === TOOL_MODES.HIGHLIGHT_BRUSH ? "active" : ""}`}
-                            onClick={() => setTool(prev => prev === TOOL_MODES.HIGHLIGHT_BRUSH ? TOOL_MODES.SELECT : TOOL_MODES.HIGHLIGHT_BRUSH)}
+                            onClick={() => {
+                                if (tool === TOOL_MODES.HIGHLIGHT_BRUSH) {
+                                    setShowHighlighterColors(!showHighlighterColors);
+                                } else {
+                                    setTool(TOOL_MODES.HIGHLIGHT_BRUSH);
+                                    setShowHighlighterColors(true);
+                                }
+                                setShowPenColors(false);
+                            }}
                             title="Highlight Brush"
                         >{icons.highlightBrush}</button>
-                        {tool === TOOL_MODES.HIGHLIGHT_BRUSH && (
+                        {(tool === TOOL_MODES.HIGHLIGHT_BRUSH && showHighlighterColors) && (
                             <div style={{
                                 position: 'absolute', top: '100%', left: 0, marginTop: 6,
                                 display: 'flex', gap: 6, background: 'white',
@@ -307,7 +318,10 @@ export default function Navbar() {
                                 zIndex: 500,
                             }}>
                                 {['#FFEB3B', '#4CAF50', '#FF4081', '#2196F3', '#FF9800'].map(color => (
-                                    <div key={color} onClick={() => setHighlightBrushColor(color)} style={{
+                                    <div key={color} onClick={() => {
+                                        setHighlightBrushColor(color);
+                                        setShowHighlighterColors(false);
+                                    }} style={{
                                         width: 16, height: 16, borderRadius: '50%', backgroundColor: color,
                                         cursor: 'pointer',
                                         border: highlightBrushColor === color ? '2px solid #555' : '1px solid #ddd',
@@ -336,8 +350,20 @@ export default function Navbar() {
 
                     {/* Pen tool + floating color picker (same popover pattern as HIGHLIGHT_BRUSH) */}
                     <div style={{ position: 'relative' }}>
-                        <button className={`tool-btn ${tool === TOOL_MODES.PEN ? "active" : ""}`} onClick={() => setTool(prev => prev === TOOL_MODES.PEN ? TOOL_MODES.SELECT : TOOL_MODES.PEN)} title="Pen">{icons.pen}</button>
-                        {tool === TOOL_MODES.PEN && (
+                        <button 
+                            className={`tool-btn ${tool === TOOL_MODES.PEN ? "active" : ""}`} 
+                            onClick={() => {
+                                if (tool === TOOL_MODES.PEN) {
+                                    setShowPenColors(!showPenColors);
+                                } else {
+                                    setTool(TOOL_MODES.PEN);
+                                    setShowPenColors(true);
+                                }
+                                setShowHighlighterColors(false);
+                            }} 
+                            title="Pen"
+                        >{icons.pen}</button>
+                        {(tool === TOOL_MODES.PEN && showPenColors) && (
                             <div style={{
                                 position: 'absolute', top: '100%', left: '50%',
                                 transform: 'translateX(-50%)',
@@ -349,7 +375,10 @@ export default function Navbar() {
                                 whiteSpace: 'nowrap',
                             }}>
                                 {['#000000', '#ff3b30', '#007aff', '#34c759', '#ffcc00', '#ff9500', '#af52de', '#5856d6', '#8e8e93', '#000080'].map(color => (
-                                    <div key={color} onClick={() => setPdfDrawingColor(color)} style={{
+                                    <div key={color} onClick={() => {
+                                        setPdfDrawingColor(color);
+                                        setShowPenColors(false);
+                                    }} style={{
                                         width: 18, height: 18, borderRadius: '50%', backgroundColor: color,
                                         cursor: 'pointer',
                                         border: pdfDrawingColor === color ? '2px solid #333' : '1.5px solid #ddd',

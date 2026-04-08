@@ -47,6 +47,10 @@ export const UIProvider = ({ children }) => {
     const [showWorkspaceSidebar, setShowWorkspaceSidebar] = useState(false);
     const [showBookmarks, setShowBookmarks] = useState(false);
 
+    // Color picker toggles
+    const [showPenColors, setShowPenColors] = useState(false);
+    const [showHighlighterColors, setShowHighlighterColors] = useState(false);
+
     // PDF tabs
     const [pdfTabs, setPdfTabs] = useState([]);
     const [activeTabId, setActiveTabId] = useState(null);
@@ -177,6 +181,8 @@ export const UIProvider = ({ children }) => {
         hoveredAnnotationId, setHoveredAnnotationId,
         showWorkspaceSidebar, setShowWorkspaceSidebar,
         showBookmarks, setShowBookmarks,
+        showPenColors, setShowPenColors,
+        showHighlighterColors, setShowHighlighterColors,
         pdfTabs, setPdfTabs,
         activeTabId, setActiveTabId,
         casePdfList, setCasePdfList,
@@ -195,7 +201,7 @@ export const UIProvider = ({ children }) => {
         tool, loading, userId, autosaveInterval, zoomLevel, pdfRenderScale, pdfPanelWidth, isResizing,
         pdfDrawingColor, highlightBrushColor, showThumbnails, showPageJump, showHighlightsList,
         hoveredAnnotationId,
-        showWorkspaceSidebar, showBookmarks, pdfTabs, activeTabId, casePdfList, secondaryPdfs,
+        showWorkspaceSidebar, showBookmarks, showPenColors, showHighlighterColors, pdfTabs, activeTabId, casePdfList, secondaryPdfs,
         panel2TabId, panel2PdfId, panel2PdfUrl, panel2PdfName,
         crossPdfLinks, pendingCrossLink, lastCreatedCrossLinkId, dragWire,
         startDragWire, moveDragWire, cancelDragWire, startCrossLink,
