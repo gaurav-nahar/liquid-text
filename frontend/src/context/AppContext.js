@@ -795,15 +795,21 @@ function AppInner({ children }) {
                     const allToOpen = [...savedPdfs];
                     
                     // Add requested PDF if not in saved list
-                    if (pdfUrl && !allToOpen.find(p => p.url === pdfUrl)) {
+                    if (pdfUrl && !allToOpen.find(p => (p.url || p.pdf_url) === pdfUrl)) {
                         allToOpen.push({ url: pdfUrl, name: pdfName });
                     }
 
                     // Open them all stable-ly
                     for (const p of allToOpen) {
+                        const resolvedUrl = p.url || p.pdf_url;
+                        const resolvedName = p.name || p.pdf_name;
+                        const resolvedId = p.id || p.pdf_id;
+                        
+                        if (!resolvedUrl) continue;
+
                         await openCasePdf({
                             diaryNo, diaryYear, establishment,
-                            selectedPdf: { url: p.url, name: p.name, id: p.id || p.pdf_id, originalPath: p.url || p.pdf_url }
+                            selectedPdf: { url: resolvedUrl, name: resolvedName, id: resolvedId, originalPath: resolvedUrl }
                         });
                     }
                 }
