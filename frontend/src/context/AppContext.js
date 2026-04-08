@@ -507,6 +507,17 @@ function AppInner({ children }) {
                 color,
             };
 
+            // IMMEDIATE REGISTRATION FOR CASE WORKSPACE
+            const ws = await ensureCaseWorkspace();
+            api.registerPdfInWorkspace(ws.id, nextPdfId, selectedPdf.name, selectedOriginalPath)
+                .then(() => {
+                    setCasePdfList(prev => {
+                        if (prev.find(p => p.pdf_id === nextPdfId)) return prev;
+                        return [...prev, { pdf_id: nextPdfId, pdf_name: selectedPdf.name, pdf_url: selectedOriginalPath }];
+                    });
+                })
+                .catch(e => console.error("Auto-registration failed:", e));
+
             activatePdfTab(newTab);
             setPdfTabs(prev => {
                 // Final dedup guard
@@ -779,26 +790,22 @@ function AppInner({ children }) {
                 // Auto-load PDF from URL if present
                 const { pdfUrl, pdfName, diaryNo, diaryYear, establishment } = readCaseContextFromUrl();
                 
-                // RESTORE ALL PREVIOUS TABS SEQUENTIALLY
-                if (savedPdfs.length > 0) {
-                   const openedUrls = new Set();
-                   for (const p of savedPdfs) {
-                       if (!openedUrls.has(p.url)) {
-                           await openCasePdf({
-                               diaryNo, diaryYear, establishment,
-                               selectedPdf: { url: p.url, name: p.name, id: p.id, originalPath: p.url }
-                           });
-                           openedUrls.add(p.url);
-                       }
-                   }
-                }
+                // BATCH RESTORE ALL PREVIOUS TABS
+                if (savedPdfs.length > 0 || pdfUrl) {
+                    const allToOpen = [...savedPdfs];
+                    
+                    // Add requested PDF if not in saved list
+                    if (pdfUrl && !allToOpen.find(p => p.url === pdfUrl)) {
+                        allToOpen.push({ url: pdfUrl, name: pdfName });
+                    }
 
-                // If a specific PDF was passed in URL, make sure it's opened/active
-                if (pdfUrl) {
-                    openCasePdf({
-                        diaryNo, diaryYear, establishment,
-                        selectedPdf: { url: pdfUrl, name: pdfName, originalPath: pdfUrl }
-                    });
+                    // Open them all stable-ly
+                    for (const p of allToOpen) {
+                        await openCasePdf({
+                            diaryNo, diaryYear, establishment,
+                            selectedPdf: { url: p.url, name: p.name, id: p.id || p.pdf_id, originalPath: p.url || p.pdf_url }
+                        });
+                    }
                 }
             } catch (e) {
                 console.error("Case workspace init failed:", e);
