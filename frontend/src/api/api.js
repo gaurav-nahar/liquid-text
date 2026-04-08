@@ -163,6 +163,11 @@ const registerPdfInWorkspace = (workspaceId, pdfId, pdfName, pdfUrl) => {
 };
 api.registerPdfInWorkspace = registerPdfInWorkspace;
 
+const closePdfInWorkspace = (workspaceId, pdfId) => {
+    return api.delete(`/workspace/${workspaceId}/pdfs/${pdfId}/close`);
+};
+api.closePdfInWorkspace = closePdfInWorkspace;
+
 const openPdf = (name, path) => api.post("/pdfs/open", { name, path });
 
 api.loadWorkspaceData = loadWorkspaceData;

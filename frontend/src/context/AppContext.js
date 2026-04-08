@@ -524,6 +524,7 @@ function AppInner({ children }) {
                 const already = prev.find(
                     (tab) => tab.pdfId === nextPdfId || tab.originalPath === selectedOriginalPath
                 );
+
                 if (already) return prev;
                 return [...prev, newTab];
             });
@@ -601,7 +602,14 @@ function AppInner({ children }) {
 
     const closePdfTab = useCallback((tabId) => {
         setPdfTabs(prev => {
+            const tabClosing = prev.find(t => t.tabId === tabId);
             const remaining = prev.filter(t => t.tabId !== tabId);
+            
+            // UN-TRACK TAB IN DATABASE SO IT STAYS CLOSED ON RELOAD
+            if (tabClosing && caseSessionRef.current.workspaceId && tabClosing.pdfId) {
+                api.closePdfInWorkspace(caseSessionRef.current.workspaceId, tabClosing.pdfId).catch(console.error);
+            }
+
             if (activeTabId === tabId && remaining.length > 0) {
                 activatePdfTab(remaining[remaining.length - 1]);
             } else if (remaining.length === 0) {
@@ -788,15 +796,22 @@ function AppInner({ children }) {
                 setCasePdfList(savedPdfs);
 
                 // Auto-load PDF from URL if present
-                const { pdfUrl, pdfName, diaryNo, diaryYear, establishment } = readCaseContextFromUrl();
+                // BATCH RESTORE ALL PREVIOUS TABS (ACTIVE ONES ONLY)
+                const { pdfUrl, pdfName, diaryNo, diaryYear, establishment, caseKey } = readCaseContextFromUrl();
                 
-                // BATCH RESTORE ALL PREVIOUS TABS
                 if (savedPdfs.length > 0 || pdfUrl) {
-                    const allToOpen = [...savedPdfs];
+                    const allToOpen = [];
                     
-                    // Add requested PDF if not in saved list
+                    // Only push saved PDFs if they are active in the db
+                    for (const p of savedPdfs) {
+                        if (p.is_active !== false) { // Default to true if missing
+                            allToOpen.push(p);
+                        }
+                    }
+                    
+                    // Always add the requested PDF if not already there
                     if (pdfUrl && !allToOpen.find(p => (p.url || p.pdf_url) === pdfUrl)) {
-                        allToOpen.push({ url: pdfUrl, name: pdfName });
+                        allToOpen.push({ url: pdfUrl, name: pdfName, is_active: true });
                     }
 
                     // Open them all stable-ly

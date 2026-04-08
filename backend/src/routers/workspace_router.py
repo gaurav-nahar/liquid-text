@@ -489,6 +489,7 @@ def list_workspace_pdfs(
             "pdf_id": item.pdf_id,
             "pdf_name": item.pdf_name,
             "pdf_url": item.pdf_url,
+            "is_active": item.is_active,
             "created_at": item.created_at,
         }
         for item in items
@@ -523,14 +524,45 @@ def add_pdf_to_workspace(
             existing.pdf_name = pdf_name
         if pdf_url is not None:
             existing.pdf_url = pdf_url
+        existing.is_active = True
         db.commit()
         db.refresh(existing)
-        return {"id": existing.id, "workspace_id": existing.workspace_id, "pdf_id": existing.pdf_id, "pdf_name": existing.pdf_name, "pdf_url": existing.pdf_url}
-    item = WorkspacePdf(workspace_id=workspace_id, pdf_id=pdf_id, pdf_name=pdf_name, pdf_url=pdf_url)
+        return {"id": existing.id, "workspace_id": existing.workspace_id, "pdf_id": existing.pdf_id, "pdf_name": existing.pdf_name, "pdf_url": existing.pdf_url, "is_active": existing.is_active}
+    item = WorkspacePdf(workspace_id=workspace_id, pdf_id=pdf_id, pdf_name=pdf_name, pdf_url=pdf_url, is_active=True)
     db.add(item)
     db.commit()
     db.refresh(item)
-    return {"id": item.id, "workspace_id": item.workspace_id, "pdf_id": item.pdf_id, "pdf_name": item.pdf_name, "pdf_url": item.pdf_url}
+    return {"id": item.id, "workspace_id": item.workspace_id, "pdf_id": item.pdf_id, "pdf_name": item.pdf_name, "pdf_url": item.pdf_url, "is_active": item.is_active}
+
+
+@router.delete("/{workspace_id}/pdfs/{pdf_id}/close")
+def close_pdf_in_workspace(
+    workspace_id: int,
+    pdf_id: int,
+    db: Session = Depends(get_db),
+    x_user_id: Optional[str] = Header(None),
+    x_diary_no: Optional[str] = Header(None),
+    x_diary_year: Optional[str] = Header(None),
+    x_establishment: Optional[str] = Header(None),
+):
+    """Mark a PDF as closed (inactive) in a workspace."""
+    from src.models.workspace_pdf_model import WorkspacePdf
+    request_user_id = resolve_request_user_id(x_user_id, x_diary_no, x_diary_year, x_establishment)
+    ws = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+    if not ws:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    assert_workspace_access(ws, request_user_id)
+    
+    existing = db.query(WorkspacePdf).filter(
+        WorkspacePdf.workspace_id == workspace_id,
+        WorkspacePdf.pdf_id == pdf_id,
+    ).first()
+    
+    if existing:
+        existing.is_active = False
+        db.commit()
+        return {"success": True}
+    return {"success": False, "message": "PDF not found in workspace"}
 
 
 @router.get("/groups/{workspace_id}")
