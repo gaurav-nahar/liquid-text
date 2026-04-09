@@ -1,12 +1,36 @@
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getCurrentTimestampName } from "../utils/defaultNames";
 import api from "../api/api";
 
 const STORAGE_KEY_PREFIX = "documentation-pages-v1";
+const LEGACY_DOCUMENT_TITLE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})(?: \d{2}:\d{2})?$/;
+
+const formatPart = (value) => String(value).padStart(2, "0");
+
+const getCurrentDocumentName = (date = new Date()) => {
+    const day = formatPart(date.getDate());
+    const month = formatPart(date.getMonth() + 1);
+    const year = date.getFullYear();
+    return `${day}-${month}-${year}`;
+};
+
+const normalizeDocumentTitle = (title) => {
+    const normalized = (title || "").trim();
+    const match = normalized.match(LEGACY_DOCUMENT_TITLE_PATTERN);
+    if (!match) return normalized;
+
+    const [, year, month, day] = match;
+    return `${day}-${month}-${year}`;
+};
+
+const normalizeDocuments = (documents = []) =>
+    documents.map((documentItem) => ({
+        ...documentItem,
+        title: normalizeDocumentTitle(documentItem.title) || getCurrentDocumentName(),
+    }));
 
 const createDocument = (overrides = {}) => ({
     id: `doc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    title: getCurrentTimestampName(),
+    title: getCurrentDocumentName(),
     content: null,
     sort_order: 0,          // always 0 by default — no Date.now() here
     updatedAt: Date.now(),
@@ -18,7 +42,12 @@ const getLocalState = (storageKey) => {
         const raw = localStorage.getItem(storageKey);
         if (!raw) return null;
         const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed?.documents) && parsed.documents.length > 0) return parsed;
+        if (Array.isArray(parsed?.documents) && parsed.documents.length > 0) {
+            return {
+                ...parsed,
+                documents: normalizeDocuments(parsed.documents),
+            };
+        }
     } catch (_) {}
     return null;
 };
@@ -31,7 +60,7 @@ const saveLocal = (storageKey, documents, activeDocumentId) => {
 
 const fromApi = (page) => ({
     id: page.id,
-    title: page.title,
+    title: normalizeDocumentTitle(page.title) || getCurrentDocumentName(),
     content: page.content ?? null,
     sort_order: page.sort_order ?? 0,
     updatedAt: page.updated_at ? new Date(page.updated_at).getTime() : Date.now(),

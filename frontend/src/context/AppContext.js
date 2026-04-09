@@ -573,7 +573,7 @@ function AppInner({ children }) {
                 if (wsRes.data.length > 0) {
                     setActiveWorkspace(wsRes.data[0]);
                 } else {
-                    await handleAddWorkspace("Main", newPdfId);
+                    await handleAddWorkspace("E-diary", newPdfId);
                 }
             }
 

@@ -4,7 +4,6 @@ import DocumentTabsFooter from "./DocumentTabsFooter";
 
 export default function DocumentationPanel({
     documents,
-    activeDocument,
     activeDocumentId,
     onSelectDocument,
     onCreateDocument,
@@ -12,15 +11,13 @@ export default function DocumentationPanel({
     onDeleteDocument,
     onUpdateDocumentContent,
 }) {
+    const activeDocument =
+        documents.find((documentItem) => documentItem.id === activeDocumentId) ||
+        documents[0] ||
+        null;
+
     return (
         <div className="documentation-panel">
-            <div className="documentation-header">
-                <div>
-                    <div className="documentation-eyebrow">Text editor</div>
-                    <h2>{activeDocument?.title || "Untitled Document"}</h2>
-                </div>
-            </div>
-
             <DocumentTabsFooter
                 documents={documents}
                 activeDocumentId={activeDocumentId}

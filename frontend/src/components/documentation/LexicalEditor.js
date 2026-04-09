@@ -172,7 +172,7 @@ function formatSpeechText(text) {
 
     return applySpeechReplacements(normalized)
         .replace(/[ \t]+([,.;:!?।])/g, "$1")
-        .replace(/([(\[{])\s+/g, "$1")
+        .replace(/([([{])\s+/g, "$1")
         .replace(/\s+([)\]}])/g, "$1")
         .replace(/([,.;:!?।])([^\s\n)\]}])/g, "$1 $2")
         .replace(/\n{3,}/g, "\n\n")
@@ -413,7 +413,7 @@ function ToolbarPlugin() {
                 }
             }
 
-        setSpeechPreview(formatSpeechText(interimTranscript));
+            setSpeechPreview(formatSpeechText(interimTranscript));
             const formattedFinalTranscript = formatSpeechText(finalTranscript).trim();
             if (formattedFinalTranscript) {
                 insertTextAtSelection(`${formattedFinalTranscript} `);
@@ -442,7 +442,7 @@ function ToolbarPlugin() {
             recognition.stop();
             recognitionRef.current = null;
         };
-    }, [SpeechRecognitionCtor, insertTextAtSelection]);
+    }, [SpeechRecognitionCtor, insertTextAtSelection, speechLanguage]);
 
     useEffect(() => {
         if (recognitionRef.current) {
@@ -570,7 +570,7 @@ function ToolbarPlugin() {
                     <i className="bi bi-fonts documentation-toolbar-icon" aria-hidden="true" />
                 </span>
                 <select
-                    className="documentation-toolbar-select"
+                    className="documentation-toolbar-select documentation-toolbar-select-font"
                     value={fontFamily}
                     onChange={(event) => {
                         setFontFamily(event.target.value);
@@ -702,7 +702,7 @@ function ToolbarPlugin() {
                     <i className="bi bi-eraser documentation-toolbar-icon" aria-hidden="true" />
                 </button>
                 <select
-                    className="documentation-toolbar-select documentation-toolbar-select-compact"
+                    className="documentation-toolbar-select documentation-toolbar-select-compact documentation-toolbar-select-language"
                     value={speechLanguage}
                     onChange={(event) => setSpeechLanguage(event.target.value)}
                     disabled={isListening}
@@ -827,7 +827,7 @@ export default function LexicalEditor({ documentId, initialState, onChange }) {
                         }
                         placeholder={
                             <div className="documentation-editor-placeholder">
-                                Start writing your documentation...
+                                Start writing...
                             </div>
                         }
                         ErrorBoundary={LexicalErrorBoundary}

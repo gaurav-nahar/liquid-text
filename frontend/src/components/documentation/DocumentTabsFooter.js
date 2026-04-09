@@ -76,7 +76,7 @@ export default function DocumentTabsFooter({
                                 type="button"
                                 className="document-tab-close"
                                 onClick={() => onDelete(documentItem.id)}
-                                title={`Delete ${documentItem.title}`}
+                                title={`Delete editor page ${documentItem.title}`}
                             >
                                 <i className="bi bi-x-lg" aria-hidden="true" />
                             </button>
@@ -89,7 +89,7 @@ export default function DocumentTabsFooter({
                 type="button"
                 className="document-tab-add"
                 onClick={onCreate}
-                title="Create a new documentation page"
+                title="Create a new editor page"
             >
                 <i className="bi bi-plus-lg" aria-hidden="true" />
             </button>

@@ -1013,44 +1013,10 @@
     linear-gradient(180deg, #f9fbff 0%, #f2f6fc 100%);
 }
 
-.documentation-header {
-  flex-shrink: 0;
-  padding: 16px 18px 10px;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.22);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 16px;
-}
-
-.documentation-eyebrow {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  color: #1a73e8;
-  text-transform: uppercase;
-  margin-bottom: 4px;
-}
-
-.documentation-header h2 {
-  margin: 0;
-  color: #132238;
-  font-size: 20px;
-  font-weight: 700;
-}
-
-.documentation-meta {
-  max-width: 280px;
-  color: #66758d;
-  font-size: 12px;
-  line-height: 1.5;
-  text-align: right;
-}
-
 .documentation-body {
   flex: 1;
   min-height: 0;
-  padding: 14px 14px 0;
+  padding: 8px 10px 0;
 }
 
 .documentation-editor-shell {
@@ -1068,8 +1034,8 @@
 .documentation-editor-toolbar {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
-  padding: 12px 14px;
+  gap: 6px;
+  padding: 8px 10px;
   border-bottom: 1px solid rgba(148, 163, 184, 0.18);
   background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
 }
@@ -1077,9 +1043,9 @@
 .documentation-editor-toolbar-group {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding-right: 10px;
-  margin-right: 2px;
+  gap: 4px;
+  padding-right: 6px;
+  margin-right: 0;
   border-right: 1px solid rgba(148, 163, 184, 0.2);
 }
 
@@ -1093,16 +1059,24 @@
   border: 1px solid rgba(148, 163, 184, 0.28);
   background: #fff;
   color: #35445c;
-  border-radius: 10px;
-  padding: 7px 10px;
-  font-size: 12px;
+  border-radius: 8px;
+  min-height: 30px;
+  padding: 5px 8px;
+  font-size: 11px;
   font-weight: 600;
   cursor: pointer;
   transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
 }
 
+.documentation-toolbar-button {
+  min-width: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .documentation-toolbar-icon {
-  font-size: 14px;
+  font-size: 12px;
   line-height: 1;
 }
 
@@ -1110,10 +1084,10 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 32px;
-  height: 32px;
+  min-width: 28px;
+  height: 28px;
   border: 1px solid rgba(148, 163, 184, 0.28);
-  border-radius: 10px;
+  border-radius: 8px;
   background: #fff;
   color: #35445c;
 }
@@ -1139,35 +1113,44 @@
 .documentation-toolbar-size-control {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
 }
 
 .documentation-toolbar-button-small {
-  min-width: 32px;
-  padding: 7px 8px;
+  min-width: 28px;
+  padding: 5px 6px;
 }
 
 .documentation-toolbar-select-compact {
-  min-width: 64px;
+  min-width: 54px;
+}
+
+.documentation-toolbar-select-font {
+  width: 88px;
+}
+
+.documentation-toolbar-select-language {
+  width: 98px;
 }
 
 .documentation-color-control {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 8px;
-  border-radius: 10px;
+  gap: 4px;
+  min-height: 30px;
+  padding: 4px 6px;
+  border-radius: 8px;
   border: 1px solid rgba(148, 163, 184, 0.28);
   background: #fff;
   color: #35445c;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   cursor: pointer;
 }
 
 .documentation-color-control input {
-  width: 22px;
-  height: 22px;
+  width: 18px;
+  height: 18px;
   border: none;
   padding: 0;
   background: transparent;
@@ -1188,9 +1171,9 @@
 .documentation-speech-status {
   display: inline-flex;
   align-items: center;
-  min-height: 32px;
+  min-height: 28px;
   padding: 0 4px;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   color: #2563eb;
   max-width: 260px;
@@ -1318,15 +1301,16 @@
   flex-shrink: 0;
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px 18px 10px;
+  gap: 8px;
+  padding: 8px 10px 6px;
   background: rgba(244, 247, 252, 0.9);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.18);
 }
 
 .document-tabs-scroll {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   overflow-x: auto;
   flex: 1;
   min-width: 0;
@@ -1340,12 +1324,12 @@
 .document-tab-item {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   min-width: 0;
-  padding: 4px;
+  padding: 2px;
   background: rgba(255, 255, 255, 0.86);
   border: 1px solid rgba(148, 163, 184, 0.24);
-  border-radius: 12px;
+  border-radius: 10px;
   box-shadow: 0 6px 16px rgba(15, 23, 42, 0.05);
 }
 
@@ -1366,8 +1350,8 @@
   color: #3f4f67;
   font-size: 13px;
   font-weight: 600;
-  padding: 7px 10px;
-  border-radius: 10px;
+  padding: 6px 9px;
+  border-radius: 8px;
   max-width: 220px;
   white-space: nowrap;
   overflow: hidden;
@@ -1379,9 +1363,9 @@
 }
 
 .document-tab-close {
-  width: 26px;
-  height: 26px;
-  border-radius: 8px;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
   color: #7c8aa3;
   font-size: 15px;
   display: inline-flex;
@@ -1396,11 +1380,11 @@
 }
 
 .document-tab-add {
-  width: 34px;
-  height: 34px;
-  border-radius: 12px;
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
   color: #174ea6;
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 500;
   background: rgba(255, 255, 255, 0.9);
   border: 1px dashed rgba(26, 115, 232, 0.32);
@@ -1418,7 +1402,7 @@
   font-size: 13px;
   font-weight: 600;
   min-width: 140px;
-  padding: 7px 10px;
+  padding: 6px 9px;
 }
 
 .workspace-rich-text {
@@ -1486,13 +1470,8 @@
 .summary-body .workspace-rich-text * { font-family: "Times New Roman", Times, serif; }
 
 @media (max-width: 900px) {
-  .documentation-header {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
   .documentation-body {
-    padding: 16px 14px 0;
+    padding: 8px 8px 0;
   }
 
   .documentation-editor-content {

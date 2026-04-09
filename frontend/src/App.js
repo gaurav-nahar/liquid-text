@@ -243,7 +243,6 @@ export default function App() {
     const [isDocumentationActive, setIsDocumentationActive] = useState(false);
     const {
         documents,
-        activeDocument,
         activeDocumentId,
         createDocumentPage,
         selectDocument,
@@ -257,6 +256,10 @@ export default function App() {
     const [pdf2Zoom, setPdf2Zoom] = useState(1.0);            // right panel independent zoom
     const [isResizing2, setIsResizing2] = useState(false);
     const resizer2Ref = useRef({ startX: 0, startWidth: 35, startZoom: 1.0 });
+    const getWorkspaceTabLabel = useCallback((name) => {
+        if ((name || "").trim().toLowerCase() === "main") return "E-diary";
+        return name;
+    }, []);
 
     const { handleMouseDownResizer, handleTouchStartResizer } = useLayoutResizer();
 
@@ -416,20 +419,20 @@ export default function App() {
                                             <polyline points="20 6 9 17 4 12" />
                                         </svg>
                                     )}
-                                    <span className="tab-name">{ws.name}</span>
+                                    <span className="tab-name">{getWorkspaceTabLabel(ws.name)}</span>
                                 </div>
                             ))}
                             <div
                                 className={`context-tab workspace-tab-item ${isDocumentationActive ? 'active' : ''}`}
                                 onClick={() => setIsDocumentationActive(true)}
-                                title="Documentation"
+                                title="Editor"
                             >
                                 {isDocumentationActive && (
                                     <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '6px' }}>
                                         <polyline points="20 6 9 17 4 12" />
                                     </svg>
                                 )}
-                                <span className="tab-name">Documentation</span>
+                                <span className="tab-name">Editor</span>
                                 <span className="workspace-tab-count">{documents.length}</span>
                             </div>
                             <NewWorkspaceBtn onAdd={handleAddWorkspace} />
@@ -519,7 +522,6 @@ export default function App() {
                         {isDocumentationActive ? (
                             <DocumentationPanel
                                 documents={documents}
-                                activeDocument={activeDocument}
                                 activeDocumentId={activeDocumentId}
                                 onSelectDocument={selectDocument}
                                 onCreateDocument={createDocumentPage}

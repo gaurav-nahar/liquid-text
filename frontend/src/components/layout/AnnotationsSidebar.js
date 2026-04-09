@@ -505,10 +505,50 @@ export default function AnnotationsSidebar() {
                                         }}
                                         onClick={() => {
                                             const last = navSideRef.current[link.id];
-                                            const goTo = last === "to" ? "from" : "to";
+                                            let goTo = last === "to" ? "from" : "to";
+                                            // Ensure we always have a valid target (in case it wasn't set)
+                                            if (!link[goTo]) goTo = "from";
+                                            
                                             navSideRef.current[link.id] = goTo;
-                                            pdfRef.current?.scrollToPage(link[goTo]?.pageNum);
-                                            setShowHighlightsList(false);
+                                            const targetPdfId = link[goTo]?.pdfId;
+                                            const targetPageNum = link[goTo]?.pageNum;
+                                            
+                                            if (!targetPdfId || !targetPageNum) return;
+
+                                            const jump = () => {
+                                                pdfRef.current?.scrollToPage(targetPageNum);
+                                                setShowHighlightsList(false);
+                                            };
+
+                                            // If the target is the currently active PDF, just jump
+                                            if (String(targetPdfId) === String(pdfId)) {
+                                                jump();
+                                                return;
+                                            }
+
+                                            // If the target is already open in a tab, switch to it and jump
+                                            const openTab = (pdfTabs || []).find((tab) => String(tab.pdfId) === String(targetPdfId));
+                                            if (openTab) {
+                                                switchPdfTab(openTab);
+                                                setTimeout(jump, 350);
+                                                return;
+                                            }
+
+                                            // If the target is closed, open it from the database history
+                                            const casePdf = (casePdfList || []).find((entry) => String(entry.pdf_id) === String(targetPdfId));
+                                            if (casePdf) {
+                                                openCasePdf({
+                                                    diaryNo: caseContext.diaryNo,
+                                                    diaryYear: caseContext.diaryYear,
+                                                    establishment: caseContext.establishment,
+                                                    selectedPdf: {
+                                                        url: casePdf.pdf_url,
+                                                        name: casePdf.pdf_name,
+                                                        originalPath: casePdf.pdf_url,
+                                                    },
+                                                });
+                                                setTimeout(jump, 900);
+                                            }
                                         }}
                                         onMouseEnter={e => { e.currentTarget.style.background = "#f0f7ff"; }}
                                         onMouseLeave={e => { e.currentTarget.style.background = isNew ? "#eff6ff" : "transparent"; }}

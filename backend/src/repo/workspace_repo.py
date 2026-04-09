@@ -38,7 +38,7 @@ class WorkspaceRepo:
             return ws
         ws = Workspace(
             pdf_id=None,
-            name="Main",
+            name="E-diary",
             user_id=user_id,
             diary_no=diary_no,
             diary_year=diary_year,
