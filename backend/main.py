@@ -1,17 +1,19 @@
 import logging
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 import httpx
 
 # Database
-from src.db.db import Base, engine, get_db
+from src.db.db import Base, DB_POOL_CONFIG, engine, get_db
 from sqlalchemy import text
+from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s: %(message)s",
 )
+logger = logging.getLogger(__name__)
 
 # Routers
 from src.routers.workspace_router import router as workspace_router
@@ -36,6 +38,31 @@ from src.models.documentation_model import DocumentationPage  # noqa: ensure tab
 
 # FastAPI app
 app = FastAPI(title="Workspace Backend")
+
+
+@app.on_event("startup")
+def log_startup_settings():
+    if DB_POOL_CONFIG:
+        logger.info("Database pool config: %s", DB_POOL_CONFIG)
+
+
+@app.exception_handler(SQLAlchemyTimeoutError)
+async def handle_db_pool_timeout(request: Request, exc: SQLAlchemyTimeoutError):
+    pool_status = engine.pool.status() if hasattr(engine.pool, "status") else "unavailable"
+    logger.error(
+        "Database pool exhausted while handling %s %s: %s | pool=%s",
+        request.method,
+        request.url.path,
+        exc,
+        pool_status,
+    )
+    return JSONResponse(
+        status_code=503,
+        content={
+            "detail": "Database is busy right now. Please retry shortly.",
+            "error": "db_pool_exhausted",
+        },
+    )
 
 # Warm up Redis connection on startup (non-blocking — fails gracefully)
 from src.cache.cache import get_redis as _init_redis
@@ -86,8 +113,8 @@ app.add_middleware(
         "https://172.21.238.12:3030",
         "http://172.21.238.12:3030",
         "https://172.21.238.12",
-        "http://172.21.238.12"
-	  "https://172.21.238.12:3030",
+        "http://172.21.238.12",
+        "https://172.21.238.12:3030",
         "http://172.21.238.12:3030",
         "https://172.21.238.12",
         "http://172.21.238.12"
@@ -137,6 +164,7 @@ def health_check():
     redis_client = get_redis()
     redis_status = "ok" if redis_client is not None else "unavailable (non-fatal)"
 
-    return {"status": "ok", "database": db_status, "redis": redis_status}
+    pool_status = engine.pool.status() if hasattr(engine.pool, "status") else "unavailable"
+    return {"status": "ok", "database": db_status, "redis": redis_status, "db_pool": pool_status}
 
 

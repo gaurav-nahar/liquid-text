@@ -21,7 +21,7 @@ def get_highlights(pdf_id: int, db: Session = Depends(get_db), x_user_id: str = 
     if cached is not None:
         return cached
     result = HighlightRepo.get_by_pdf(db, pdf_id, user_id=x_user_id)
-    serialized = [r.model_dump() if hasattr(r, "model_dump") else dict(r) for r in result]
+    serialized = [HighlightOut.model_validate(item).model_dump() for item in result]
     cache_set(cache_key, serialized)
     return result
 

@@ -6,7 +6,7 @@ import json
 import math
 from src.cache.cache import (
     cache_get, cache_set, cache_delete,
-    key_cross_pdf_links, key_workspace_groups
+    key_cross_pdf_links, key_workspace_groups, key_workspace_list
 )
 from src.utils.case_context import build_case_context, apply_case_context_to_model
 
@@ -105,7 +105,29 @@ def assert_workspace_access(ws: Workspace, request_user_id: str) -> None:
 # ----------------------------
 @router.get("/list/{pdf_id}")
 async def list_workspaces(pdf_id: int, db: Session = Depends(get_db), x_user_id: Optional[str] = Header(None)):
-    return WorkspaceRepo.get_by_pdf(db, pdf_id, user_id=x_user_id)
+    cache_key = key_workspace_list(x_user_id, pdf_id)
+    cached = cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    workspaces = WorkspaceRepo.get_by_pdf(db, pdf_id, user_id=x_user_id)
+    serialized = [
+        {
+            "id": ws.id,
+            "pdf_id": ws.pdf_id,
+            "user_id": ws.user_id,
+            "diary_no": ws.diary_no,
+            "diary_year": ws.diary_year,
+            "establishment": ws.establishment,
+            "name": ws.name,
+            "created_at": ws.created_at.isoformat() if ws.created_at else None,
+            "updated_at": ws.updated_at.isoformat() if ws.updated_at else None,
+            "cross_pdf_links_json": ws.cross_pdf_links_json,
+        }
+        for ws in workspaces
+    ]
+    cache_set(cache_key, serialized)
+    return workspaces
 # ➕ Naya workspace create karne ke liye
 @router.post("/create/{pdf_id}")
 async def create_workspace(
@@ -120,7 +142,10 @@ async def create_workspace(
     case_context = build_case_context(x_diary_no, x_diary_year, x_establishment)
     request_user_id = resolve_request_user_id(x_user_id, x_diary_no, x_diary_year, x_establishment)
     normalized_pdf_id = None if pdf_id <= 0 and any(case_context.values()) else pdf_id
-    return WorkspaceRepo.create(db, normalized_pdf_id, name, user_id=request_user_id, case_context=case_context)
+    workspace = WorkspaceRepo.create(db, normalized_pdf_id, name, user_id=request_user_id, case_context=case_context)
+    if normalized_pdf_id is not None:
+        cache_delete(key_workspace_list(request_user_id, normalized_pdf_id))
+    return workspace
 
 @router.post("/save/{pdf_id}/{workspace_id}")
 async def save_workspace(

@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional
 import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from src.db.db import get_db
@@ -21,7 +22,18 @@ from src.repo.pdf_repo import PDFRepo
 from src.models.pdf_model import PDFFile
 from PIL import Image, ImageOps, ImageFilter
 
-from src.cache.cache import cache_get, cache_set, cache_delete, cache_delete_pattern, get_redis
+from src.cache.cache import (
+    cache_get,
+    cache_set,
+    cache_delete,
+    cache_delete_pattern,
+    get_redis,
+    key_highlights,
+    key_pdf_texts,
+    key_pdf_drawing_lines,
+    key_pdf_brush_highlights,
+    key_pdf_detail,
+)
 from src.utils.case_context import build_case_context
 
 logger = logging.getLogger(__name__)
@@ -429,9 +441,14 @@ def get_latest_pdf(file_name: str, db: Session = Depends(get_db)):
 # ---------------------------------------------------------
 @router.get("/{pdf_id}", response_model=PdfOut)
 def get_pdf(pdf_id: int, db: Session = Depends(get_db)):
+    cache_key = key_pdf_detail(pdf_id)
+    cached = cache_get(cache_key)
+    if cached is not None:
+        return cached
     pdf = PDFRepo.get(db, pdf_id)
     if not pdf:
         raise HTTPException(status_code=404, detail="PDF not found")
+    cache_set(cache_key, PdfOut.model_validate(pdf).model_dump())
     return pdf
 
 # ---------------------------------------------------------
@@ -467,6 +484,13 @@ def safe_int(value, default=0):
     except (TypeError, ValueError):
         return default
 
+
+def delete_missing_ids(query, model, touched_ids):
+    if touched_ids:
+        query.filter(~model.id.in_(touched_ids)).delete(synchronize_session=False)
+    else:
+        query.delete(synchronize_session=False)
+
 class PdfAnnotationsSave(BaseModel):
     highlights: List[Dict[str, Any]] = []
     pdf_texts: List[Dict[str, Any]] = []
@@ -498,9 +522,65 @@ def save_pdf_annotations(
     touched_brush_ids = []
 
     try:
+        highlight_existing_ids = [
+            safe_int(item.get("id")) for item in payload.highlights if safe_int(item.get("id")) > 0
+        ]
+        pdf_text_existing_ids = [
+            safe_int(item.get("id")) for item in payload.pdf_texts if safe_int(item.get("id")) > 0
+        ]
+        pdf_line_existing_ids = [
+            safe_int(item.get("id")) for item in payload.pdf_drawing_lines if safe_int(item.get("id")) > 0
+        ]
+        brush_existing_ids = [
+            safe_int(item.get("id")) for item in payload.brush_highlights if safe_int(item.get("id")) > 0
+        ]
+
+        existing_highlights = {
+            item.id: item
+            for item in db.query(Highlight).filter(
+                Highlight.pdf_id == pdf_id,
+                Highlight.user_id == x_user_id,
+                Highlight.id.in_(highlight_existing_ids) if highlight_existing_ids else False,
+            ).all()
+        } if highlight_existing_ids else {}
+
+        existing_pdf_texts = {
+            item.id: item
+            for item in db.query(PdfText).filter(
+                PdfText.pdf_id == pdf_id,
+                PdfText.user_id == x_user_id,
+                PdfText.id.in_(pdf_text_existing_ids) if pdf_text_existing_ids else False,
+            ).all()
+        } if pdf_text_existing_ids else {}
+
+        existing_pdf_lines = {
+            item.id: item
+            for item in db.query(PdfDrawingLine).filter(
+                PdfDrawingLine.pdf_id == pdf_id,
+                PdfDrawingLine.user_id == x_user_id,
+                PdfDrawingLine.id.in_(pdf_line_existing_ids) if pdf_line_existing_ids else False,
+            ).all()
+        } if pdf_line_existing_ids else {}
+
+        existing_brushes = {
+            item.id: item
+            for item in db.query(PdfBrushHighlight).filter(
+                PdfBrushHighlight.pdf_id == pdf_id,
+                PdfBrushHighlight.user_id == x_user_id,
+                PdfBrushHighlight.id.in_(brush_existing_ids) if brush_existing_ids else False,
+            ).all()
+        } if brush_existing_ids else {}
+
+        response_highlights = []
+        response_pdf_texts = []
+        response_pdf_lines = []
+        response_brushes = []
+
         # ========================================
         # 1️⃣ UPSERT HIGHLIGHTS
         # ========================================
+        new_highlights = []
+        pending_highlight_rows = []
         for hl_data in payload.highlights:
             frontend_id = hl_data.get("id")
             db_id = safe_int(frontend_id)
@@ -521,26 +601,53 @@ def save_pdf_annotations(
             }
             
             if db_id > 0:
-                existing = db.query(Highlight).filter(Highlight.id == db_id, Highlight.pdf_id == pdf_id, Highlight.user_id == x_user_id).first()
+                existing = existing_highlights.get(db_id)
                 if existing:
                     for k, v in data.items():
                         if k != "id" and hasattr(existing, k):
                             setattr(existing, k, v)
                     touched_highlight_ids.append(db_id)
                     id_map[str(frontend_id)] = db_id
+                    response_highlights.append({
+                        "id": db_id,
+                        "page_num": data["page_num"],
+                        "color": data["color"],
+                        "x_pct": data["x_pct"],
+                        "y_pct": data["y_pct"],
+                        "width_pct": data["width_pct"],
+                        "height_pct": data["height_pct"],
+                        "content": data["content"],
+                    })
                     continue
-            
+
             new_hl = Highlight(**data)
-            db.add(new_hl)
+            new_highlights.append(new_hl)
+            pending_highlight_rows.append((frontend_id, data, new_hl))
+
+        if new_highlights:
+            db.add_all(new_highlights)
             db.flush()
-            new_id = new_hl.id
-            touched_highlight_ids.append(new_id)
-            if frontend_id:
-                id_map[str(frontend_id)] = new_id
+            for frontend_id, data, new_hl in pending_highlight_rows:
+                new_id = new_hl.id
+                touched_highlight_ids.append(new_id)
+                if frontend_id:
+                    id_map[str(frontend_id)] = new_id
+                response_highlights.append({
+                    "id": new_id,
+                    "page_num": data["page_num"],
+                    "color": data["color"],
+                    "x_pct": data["x_pct"],
+                    "y_pct": data["y_pct"],
+                    "width_pct": data["width_pct"],
+                    "height_pct": data["height_pct"],
+                    "content": data["content"],
+                })
 
         # ========================================
         # 2️⃣ UPSERT PDF TEXTS
         # ========================================
+        new_pdf_texts = []
+        pending_pdf_text_rows = []
         for txt_data in payload.pdf_texts:
             frontend_id = txt_data.get("id")
             db_id = safe_int(frontend_id)
@@ -558,26 +665,47 @@ def save_pdf_annotations(
             }
             
             if db_id > 0:
-                existing = db.query(PdfText).filter(PdfText.id == db_id, PdfText.pdf_id == pdf_id, PdfText.user_id == x_user_id).first()
+                existing = existing_pdf_texts.get(db_id)
                 if existing:
                     for k, v in data.items():
                         if k != "id" and hasattr(existing, k):
                             setattr(existing, k, v)
                     touched_pdftext_ids.append(db_id)
                     id_map[str(frontend_id)] = db_id
+                    response_pdf_texts.append({
+                        "id": db_id,
+                        "page_num": data["page_num"],
+                        "text": data["text"],
+                        "x_pct": data["x_pct"],
+                        "y_pct": data["y_pct"],
+                    })
                     continue
-            
+
             new_txt = PdfText(**data)
-            db.add(new_txt)
+            new_pdf_texts.append(new_txt)
+            pending_pdf_text_rows.append((frontend_id, data, new_txt))
+
+        if new_pdf_texts:
+            db.add_all(new_pdf_texts)
             db.flush()
-            new_id = new_txt.id
-            touched_pdftext_ids.append(new_id)
-            if frontend_id:
-                id_map[str(frontend_id)] = new_id
+            for frontend_id, data, new_txt in pending_pdf_text_rows:
+                new_id = new_txt.id
+                touched_pdftext_ids.append(new_id)
+                if frontend_id:
+                    id_map[str(frontend_id)] = new_id
+                response_pdf_texts.append({
+                    "id": new_id,
+                    "page_num": data["page_num"],
+                    "text": data["text"],
+                    "x_pct": data["x_pct"],
+                    "y_pct": data["y_pct"],
+                })
 
         # ========================================
         # 3️⃣ UPSERT PDF DRAWING LINES
         # ========================================
+        new_pdf_lines = []
+        pending_pdf_line_rows = []
         for line_data in payload.pdf_drawing_lines:
             frontend_id = line_data.get("id")
             db_id = safe_int(frontend_id)
@@ -595,26 +723,47 @@ def save_pdf_annotations(
             }
             
             if db_id > 0:
-                existing = db.query(PdfDrawingLine).filter(PdfDrawingLine.id == db_id, PdfDrawingLine.pdf_id == pdf_id, PdfDrawingLine.user_id == x_user_id).first()
+                existing = existing_pdf_lines.get(db_id)
                 if existing:
                     for k, v in data.items():
                         if k != "id" and hasattr(existing, k):
                             setattr(existing, k, v)
                     touched_pdfline_ids.append(db_id)
                     id_map[str(frontend_id)] = db_id
+                    response_pdf_lines.append({
+                        "id": db_id,
+                        "page_num": data["page_num"],
+                        "points": data["points"],
+                        "color": data["color"],
+                        "stroke_width": data["stroke_width"],
+                    })
                     continue
-            
+
             new_line = PdfDrawingLine(**data)
-            db.add(new_line)
+            new_pdf_lines.append(new_line)
+            pending_pdf_line_rows.append((frontend_id, data, new_line))
+
+        if new_pdf_lines:
+            db.add_all(new_pdf_lines)
             db.flush()
-            new_id = new_line.id
-            touched_pdfline_ids.append(new_id)
-            if frontend_id:
-                id_map[str(frontend_id)] = new_id
+            for frontend_id, data, new_line in pending_pdf_line_rows:
+                new_id = new_line.id
+                touched_pdfline_ids.append(new_id)
+                if frontend_id:
+                    id_map[str(frontend_id)] = new_id
+                response_pdf_lines.append({
+                    "id": new_id,
+                    "page_num": data["page_num"],
+                    "points": data["points"],
+                    "color": data["color"],
+                    "stroke_width": data["stroke_width"],
+                })
 
         # ========================================
         # 4️⃣ UPSERT BRUSH HIGHLIGHTS
         # ========================================
+        new_brushes = []
+        pending_brush_rows = []
         for brush_data in payload.brush_highlights:
             frontend_id = brush_data.get("id")
             db_id = safe_int(frontend_id)
@@ -632,90 +781,109 @@ def save_pdf_annotations(
             }
             
             if db_id > 0:
-                existing = db.query(PdfBrushHighlight).filter(PdfBrushHighlight.id == db_id, PdfBrushHighlight.pdf_id == pdf_id, PdfBrushHighlight.user_id == x_user_id).first()
+                existing = existing_brushes.get(db_id)
                 if existing:
                     for k, v in data.items():
                         if k != "id" and hasattr(existing, k):
                             setattr(existing, k, v)
                     touched_brush_ids.append(db_id)
                     id_map[str(frontend_id)] = db_id
+                    response_brushes.append({
+                        "id": db_id,
+                        "page_num": data["page_num"],
+                        "path_data": data["path_data"],
+                        "color": data["color"],
+                        "brush_width": data["brush_width"],
+                    })
                     continue
-            
+
             new_brush = PdfBrushHighlight(**data)
-            db.add(new_brush)
+            new_brushes.append(new_brush)
+            pending_brush_rows.append((frontend_id, data, new_brush))
+
+        if new_brushes:
+            db.add_all(new_brushes)
             db.flush()
-            new_id = new_brush.id
-            touched_brush_ids.append(new_id)
-            if frontend_id:
-                id_map[str(frontend_id)] = new_id
+            for frontend_id, data, new_brush in pending_brush_rows:
+                new_id = new_brush.id
+                touched_brush_ids.append(new_id)
+                if frontend_id:
+                    id_map[str(frontend_id)] = new_id
+                response_brushes.append({
+                    "id": new_id,
+                    "page_num": data["page_num"],
+                    "path_data": data["path_data"],
+                    "color": data["color"],
+                    "brush_width": data["brush_width"],
+                })
 
         # ========================================
         # 5️⃣ DELETE ORPHANED ITEMS (Isolated by user_id)
         # ========================================
         
         # Highlights
-        db.query(Highlight).filter(
+        delete_missing_ids(
+            db.query(Highlight).filter(
             Highlight.pdf_id == pdf_id,
             Highlight.user_id == x_user_id,
-            ~Highlight.id.in_(touched_highlight_ids)
-        ).delete(synchronize_session=False)
+            ),
+            Highlight,
+            touched_highlight_ids,
+        )
 
         # PdfText
-        db.query(PdfText).filter(
+        delete_missing_ids(
+            db.query(PdfText).filter(
             PdfText.pdf_id == pdf_id,
             PdfText.user_id == x_user_id,
-            ~PdfText.id.in_(touched_pdftext_ids)
-        ).delete(synchronize_session=False)
+            ),
+            PdfText,
+            touched_pdftext_ids,
+        )
 
         # PdfDrawingLine
-        db.query(PdfDrawingLine).filter(
+        delete_missing_ids(
+            db.query(PdfDrawingLine).filter(
             PdfDrawingLine.pdf_id == pdf_id,
             PdfDrawingLine.user_id == x_user_id,
-            ~PdfDrawingLine.id.in_(touched_pdfline_ids)
-        ).delete(synchronize_session=False)
+            ),
+            PdfDrawingLine,
+            touched_pdfline_ids,
+        )
 
         # BrushHighlight
-        db.query(PdfBrushHighlight).filter(
+        delete_missing_ids(
+            db.query(PdfBrushHighlight).filter(
             PdfBrushHighlight.pdf_id == pdf_id,
             PdfBrushHighlight.user_id == x_user_id,
-            ~PdfBrushHighlight.id.in_(touched_brush_ids)
-        ).delete(synchronize_session=False)
+            ),
+            PdfBrushHighlight,
+            touched_brush_ids,
+        )
 
         # ========================================
         # 6️⃣ COMMIT & RETURN (Return only User's data)
         # ========================================
         db.commit()
+        if x_user_id:
+            cache_delete_pattern(key_highlights(x_user_id, pdf_id))
+            cache_delete_pattern(key_pdf_texts(x_user_id, pdf_id))
+            cache_delete_pattern(key_pdf_drawing_lines(x_user_id, pdf_id))
+            cache_delete_pattern(key_pdf_brush_highlights(x_user_id, pdf_id))
 
         return {
             "status": "success",
             "id_map": id_map,
-            "highlights": [
-                {
-                    "id": h.id, "page_num": h.page_num, "color": h.color,
-                    "x_pct": h.x_pct, "y_pct": h.y_pct, "width_pct": h.width_pct,
-                    "height_pct": h.height_pct, "content": h.content
-                } for h in db.query(Highlight).filter(Highlight.pdf_id == pdf_id, Highlight.user_id == x_user_id).all()
-            ],
-            "pdf_texts": [
-                {
-                    "id": t.id, "page_num": t.page_num, "text": t.text,
-                    "x_pct": t.x_pct, "y_pct": t.y_pct
-                } for t in db.query(PdfText).filter(PdfText.pdf_id == pdf_id, PdfText.user_id == x_user_id).all()
-            ],
-            "pdf_drawing_lines": [
-                {
-                    "id": l.id, "page_num": l.page_num, "points": l.points,
-                    "color": l.color, "stroke_width": l.stroke_width
-                } for l in db.query(PdfDrawingLine).filter(PdfDrawingLine.pdf_id == pdf_id, PdfDrawingLine.user_id == x_user_id).all()
-            ],
-            "brush_highlights": [
-                {
-                    "id": h.id, "page_num": h.page_num, "path_data": h.path_data,
-                    "color": h.color, "brush_width": h.brush_width
-                } for h in db.query(PdfBrushHighlight).filter(PdfBrushHighlight.pdf_id == pdf_id, PdfBrushHighlight.user_id == x_user_id).all()
-            ],
+            "highlights": response_highlights,
+            "pdf_texts": response_pdf_texts,
+            "pdf_drawing_lines": response_pdf_lines,
+            "brush_highlights": response_brushes,
         }
 
+    except SQLAlchemyTimeoutError as e:
+        db.rollback()
+        logger.error("save_annotations failed due to DB pool exhaustion: %s", e)
+        raise HTTPException(status_code=503, detail="Database is busy right now. Please retry shortly.") from e
     except Exception as e:
         db.rollback()
         logger.error(f"save_annotations failed: {e}")

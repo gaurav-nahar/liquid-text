@@ -4,22 +4,53 @@ Locust Load Test for LiquidText Clone Backend
 Run:
     locust -f locustfile.py --host=http://localhost:8000
 
+Recommended headless example for 1000 users / ramp 30:
+    locust -f locustfile.py --host=http://localhost:8000 --headless -u 1000 -r 30 --run-time 10m
+
 Then open: http://localhost:8089
 """
 
-from locust import HttpUser, task, between, events
+import os
 import random
-import json
+from locust import HttpUser, task, between, events
+from itertools import count
+
+
+def env_int(name, default, minimum=0):
+    raw = os.getenv(name)
+    if raw in (None, ""):
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return value if value >= minimum else default
+
 
 # ── Shared test data ──────────────────────────────────────────
-TEST_PDF_NAME = "test_document.pdf"
-TEST_PDF_PATH = "test_document.pdf"
-TEST_USER_IDS = [f"load_test_user_{i}" for i in range(1, 21)]  # 20 virtual users
+TEST_PDF_NAME = os.getenv("LOCUST_TEST_PDF_NAME", "sample.pdf")
+TEST_PDF_PATH = os.getenv(
+    "LOCUST_TEST_PDF_PATH",
+    "/home/gaurav/liquidtext_clone/liquid-text/frontend/public/sam.pdf",
+)
+
+READ_ONLY_WEIGHT = env_int("LOCUST_READ_ONLY_WEIGHT", 9, minimum=0)
+ACTIVE_ANNOTATOR_WEIGHT = env_int("LOCUST_ACTIVE_ANNOTATOR_WEIGHT", 1, minimum=0)
+SUMMARY_WEIGHT = env_int("LOCUST_SUMMARY_WEIGHT", 0, minimum=0)
+
+READ_WAIT_MIN = env_int("LOCUST_READ_WAIT_MIN", 2, minimum=1)
+READ_WAIT_MAX = env_int("LOCUST_READ_WAIT_MAX", 5, minimum=READ_WAIT_MIN)
+ACTIVE_WAIT_MIN = env_int("LOCUST_ACTIVE_WAIT_MIN", 4, minimum=1)
+ACTIVE_WAIT_MAX = env_int("LOCUST_ACTIVE_WAIT_MAX", 8, minimum=ACTIVE_WAIT_MIN)
+EXISTING_PDF_ID = env_int("LOCUST_EXISTING_PDF_ID", 0, minimum=0) or None
+EXISTING_WORKSPACE_ID = env_int("LOCUST_EXISTING_WORKSPACE_ID", 0, minimum=0) or None
+
+USER_ID_COUNTER = count(1)
 
 
 # ── Helper ────────────────────────────────────────────────────
-def random_user():
-    return random.choice(TEST_USER_IDS)
+def next_user_id():
+    return f"load_test_user_{next(USER_ID_COUNTER)}"
 
 
 # ══════════════════════════════════════════════════════════════
@@ -28,16 +59,17 @@ def random_user():
 # Weight = 5 (most common)
 # ══════════════════════════════════════════════════════════════
 class ReadOnlyUser(HttpUser):
-    weight = 5
-    wait_time = between(1, 3)
+    weight = READ_ONLY_WEIGHT
+    wait_time = between(READ_WAIT_MIN, READ_WAIT_MAX)
 
     def on_start(self):
         """Called once when user starts — open/register the PDF"""
-        self.user_id = random_user()
+        self.user_id = next_user_id()
         self.headers = {"X-User-ID": self.user_id}
-        self.pdf_id = None
-        self.workspace_id = None
-        self._open_pdf()
+        self.pdf_id = EXISTING_PDF_ID
+        self.workspace_id = EXISTING_WORKSPACE_ID
+        if not self.pdf_id:
+            self._open_pdf()
 
     def _open_pdf(self):
         with self.client.post(
@@ -53,16 +85,18 @@ class ReadOnlyUser(HttpUser):
                 res.failure(f"Failed to open PDF: {res.status_code}")
                 return
 
-        if self.pdf_id:
-            ws_res = self.client.get(
-                f"/workspace/list/{self.pdf_id}",
-                headers=self.headers,
-                name="/workspace/list/{pdf_id}",
-            )
-            if ws_res.status_code == 200:
-                ws_list = ws_res.json()
-                if ws_list:
-                    self.workspace_id = ws_list[0]["id"]
+    def _ensure_workspace(self):
+        if not self.pdf_id or self.workspace_id:
+            return
+        ws_res = self.client.get(
+            f"/workspace/list/{self.pdf_id}",
+            headers=self.headers,
+            name="/workspace/list/{pdf_id}",
+        )
+        if ws_res.status_code == 200:
+            ws_list = ws_res.json()
+            if ws_list:
+                self.workspace_id = ws_list[0]["id"]
 
     @task(4)
     def load_highlights(self):
@@ -76,6 +110,7 @@ class ReadOnlyUser(HttpUser):
 
     @task(4)
     def load_workspace_data(self):
+        self._ensure_workspace()
         if not self.pdf_id or not self.workspace_id:
             return
         # Load all workspace data in parallel (as the frontend does)
@@ -112,7 +147,7 @@ class ReadOnlyUser(HttpUser):
             name="/pdf_brush_highlights/pdf/{pdf_id}",
         )
 
-    @task(2)
+    @task(1)
     def get_pdf_info(self):
         if not self.pdf_id:
             return
@@ -122,33 +157,23 @@ class ReadOnlyUser(HttpUser):
             name="/pdfs/{pdf_id}",
         )
 
-    @task(1)
-    def list_workspaces(self):
-        if not self.pdf_id:
-            return
-        self.client.get(
-            f"/workspace/list/{self.pdf_id}",
-            headers=self.headers,
-            name="/workspace/list/{pdf_id}",
-        )
-
-
 # ══════════════════════════════════════════════════════════════
 # USER 2: Active Annotator
 # Simulates someone actively highlighting and saving
 # Weight = 3
 # ══════════════════════════════════════════════════════════════
 class ActiveAnnotatorUser(HttpUser):
-    weight = 3
-    wait_time = between(2, 5)
+    weight = ACTIVE_ANNOTATOR_WEIGHT
+    wait_time = between(ACTIVE_WAIT_MIN, ACTIVE_WAIT_MAX)
 
     def on_start(self):
-        self.user_id = random_user()
+        self.user_id = next_user_id()
         self.headers = {"X-User-ID": self.user_id}
-        self.pdf_id = None
-        self.workspace_id = None
+        self.pdf_id = EXISTING_PDF_ID
+        self.workspace_id = EXISTING_WORKSPACE_ID
         self.created_highlight_ids = []
-        self._setup()
+        if not self.pdf_id:
+            self._setup()
 
     def _setup(self):
         res = self.client.post(
@@ -160,18 +185,20 @@ class ActiveAnnotatorUser(HttpUser):
         if res.status_code == 200:
             self.pdf_id = res.json().get("id")
 
-        if self.pdf_id:
-            ws_res = self.client.get(
-                f"/workspace/list/{self.pdf_id}",
-                headers=self.headers,
-                name="/workspace/list/{pdf_id}",
-            )
-            if ws_res.status_code == 200:
-                ws_list = ws_res.json()
-                if ws_list:
-                    self.workspace_id = ws_list[0]["id"]
+    def _ensure_workspace(self):
+        if not self.pdf_id or self.workspace_id:
+            return
+        ws_res = self.client.get(
+            f"/workspace/list/{self.pdf_id}",
+            headers=self.headers,
+            name="/workspace/list/{pdf_id}",
+        )
+        if ws_res.status_code == 200:
+            ws_list = ws_res.json()
+            if ws_list:
+                self.workspace_id = ws_list[0]["id"]
 
-    @task(5)
+    @task(2)
     def save_annotations(self):
         """Simulate saving highlights + drawings (like clicking Save button)"""
         if not self.pdf_id:
@@ -215,9 +242,10 @@ class ActiveAnnotatorUser(HttpUser):
             if res.status_code != 200:
                 res.failure(f"Save failed: {res.status_code} - {res.text}")
 
-    @task(3)
+    @task(1)
     def create_snippet(self):
         """Simulate dragging a snippet to workspace"""
+        self._ensure_workspace()
         if not self.pdf_id or not self.workspace_id:
             return
         self.client.post(
@@ -239,8 +267,9 @@ class ActiveAnnotatorUser(HttpUser):
             name="/snippets/",
         )
 
-    @task(2)
+    @task(1)
     def add_text_box(self):
+        self._ensure_workspace()
         if not self.pdf_id or not self.workspace_id:
             return
         self.client.post(
@@ -259,9 +288,10 @@ class ActiveAnnotatorUser(HttpUser):
             name="/boxes/",
         )
 
-    @task(1)
+    @task(2)
     def load_all_data(self):
         """Re-load workspace (simulates page refresh)"""
+        self._ensure_workspace()
         if not self.pdf_id or not self.workspace_id:
             return
         self.client.get(
@@ -277,11 +307,11 @@ class ActiveAnnotatorUser(HttpUser):
 # Weight = 1 (least frequent — heavy API call)
 # ══════════════════════════════════════════════════════════════
 class SummaryUser(HttpUser):
-    weight = 1
+    weight = SUMMARY_WEIGHT
     wait_time = between(10, 30)  # Summary users wait longer between requests
 
     def on_start(self):
-        self.user_id = random_user()
+        self.user_id = next_user_id()
         self.headers = {"X-User-ID": self.user_id}
 
     @task

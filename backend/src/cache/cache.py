@@ -89,8 +89,20 @@ def key_cross_pdf_links(workspace_id: int) -> str:
 def key_workspace_groups(workspace_id: int) -> str:
     return f"workspace_groups:{workspace_id}"
 
+def key_workspace_list(user_id: str | None, pdf_id: int) -> str:
+    return f"workspace_list:{user_id or 'anonymous'}:{pdf_id}"
+
 def key_pdf_texts(user_id: str, pdf_id: int) -> str:
     return f"pdf_texts:{user_id}:{pdf_id}"
+
+def key_pdf_drawing_lines(user_id: str, pdf_id: int) -> str:
+    return f"pdf_drawing_lines:{user_id}:{pdf_id}"
+
+def key_pdf_brush_highlights(user_id: str, pdf_id: int) -> str:
+    return f"pdf_brush_highlights:{user_id}:{pdf_id}"
+
+def key_pdf_detail(pdf_id: int) -> str:
+    return f"pdf_detail:{pdf_id}"
 
 def key_snippets_workspace(user_id: str, workspace_id: int) -> str:
     return f"snippets_ws:{user_id}:{workspace_id}"

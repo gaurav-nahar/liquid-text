@@ -9,6 +9,7 @@ export default function AnnotationsSidebar() {
         setHoveredAnnotationId,
         pdfRef,
         pdfId,
+        snippets,
         handleDeleteHighlight,
         handleDeletePdfText,
         handleDeletePdfDrawing,
@@ -163,6 +164,69 @@ export default function AnnotationsSidebar() {
         if (tab) return tab.name;
         const casePdf = (casePdfList || []).find(t => String(t.pdf_id) === String(pdfId));
         return casePdf?.pdf_name || `PDF ${pdfId}`;
+    };
+
+    const getWorkspaceSnippet = (snippetId) =>
+        (snippets || []).find((snippet) => String(snippet.id) === String(snippetId));
+
+    const getSnippetSourceMeta = (snippetId) => {
+        const snippet = getWorkspaceSnippet(snippetId);
+        if (!snippet) return null;
+
+        const sourcePdfId = snippet.pdf_id || snippet.sourcePdfId || null;
+        const sourcePageNum = snippet.pageNum || null;
+
+        return {
+            snippet,
+            sourcePdfId,
+            sourcePageNum,
+        };
+    };
+
+    const stripHtml = (value = "") =>
+        String(value)
+            .replace(/<[^>]+>/g, " ")
+            .replace(/\s+/g, " ")
+            .trim();
+
+    const getEndpointLabel = (endpoint) => {
+        if (!endpoint) return "Unknown target";
+        if (endpoint.type === "snippet" || endpoint.snippetId) {
+            const snippetMeta = getSnippetSourceMeta(endpoint.snippetId);
+            const snippet = snippetMeta?.snippet;
+            const preview = stripHtml(snippet?.text || endpoint.text || "");
+            const sourcePdfId = endpoint.pdfId || snippetMeta?.sourcePdfId;
+            const sourcePageNum = endpoint.pageNum || snippetMeta?.sourcePageNum;
+            const sourceLabel = sourcePdfId && sourcePageNum
+                ? ` · ${getPdfName(sourcePdfId)} · Page ${sourcePageNum}`
+                : "";
+            return preview
+                ? `Workspace note${sourceLabel} · ${preview.slice(0, 40)}`
+                : `Workspace note${sourceLabel}`;
+        }
+        if (endpoint.pdfId && endpoint.pageNum) {
+            return `${getPdfName(endpoint.pdfId)} · Page ${endpoint.pageNum}`;
+        }
+        if (endpoint.pageNum) {
+            return `Page ${endpoint.pageNum}`;
+        }
+        return "Unknown target";
+    };
+
+    const focusWorkspaceSnippet = (snippetId) => {
+        if (!snippetId) return;
+        const noteEl = document.getElementById(`workspace-item-${snippetId}`);
+        if (!noteEl) return;
+
+        noteEl.scrollIntoView({ behavior: "smooth", block: "center", inline: "center" });
+        const prevBoxShadow = noteEl.style.boxShadow;
+        const prevOutline = noteEl.style.outline;
+        noteEl.style.outline = "2px solid #3b82f6";
+        noteEl.style.boxShadow = "0 0 0 4px rgba(59,130,246,0.18)";
+        setTimeout(() => {
+            noteEl.style.outline = prevOutline;
+            noteEl.style.boxShadow = prevBoxShadow;
+        }, 1400);
     };
 
     const activePdfName = getPdfName(pdfId);
@@ -484,15 +548,10 @@ export default function AnnotationsSidebar() {
 
                             {/* Cross-PDF links (between different PDF documents) */}
                             {crossLinks.map((link) => {
-                                const isCross = String(link.from?.pdfId) !== String(link.to?.pdfId);
                                 const c = link.color || "#3b82f6";
                                 const isNew = link.id === lastCreatedCrossLinkId;
-                                const fromLabel = isCross
-                                    ? `${getPdfName(link.from?.pdfId)} · Page ${link.from?.pageNum}`
-                                    : `Page ${link.from?.pageNum}`;
-                                const toLabel = isCross
-                                    ? `${getPdfName(link.to?.pdfId)} · Page ${link.to?.pageNum}`
-                                    : `Page ${link.to?.pageNum}`;
+                                const fromLabel = getEndpointLabel(link.from);
+                                const toLabel = getEndpointLabel(link.to);
                                 return (
                                     <div
                                         key={link.id}
@@ -510,8 +569,17 @@ export default function AnnotationsSidebar() {
                                             if (!link[goTo]) goTo = "from";
                                             
                                             navSideRef.current[link.id] = goTo;
-                                            const targetPdfId = link[goTo]?.pdfId;
-                                            const targetPageNum = link[goTo]?.pageNum;
+                                            const target = link[goTo];
+                                            if (!target) return;
+
+                                            if (target.type === "snippet" || target.snippetId) {
+                                                focusWorkspaceSnippet(target.snippetId);
+                                                setShowHighlightsList(false);
+                                                return;
+                                            }
+
+                                            const targetPdfId = target.pdfId;
+                                            const targetPageNum = target.pageNum;
                                             
                                             if (!targetPdfId || !targetPageNum) return;
 

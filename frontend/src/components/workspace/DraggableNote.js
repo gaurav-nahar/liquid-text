@@ -445,6 +445,13 @@ const DraggableNote = memo(({
               const cy = rect ? rect.top + rect.height / 2 : e.clientY;
               onStartWire(snippet.id, cx, cy, e.clientX, e.clientY);
             }}
+            onPointerUp={(e) => {
+              e.stopPropagation();
+            }}
+            onClick={(e) => {
+              e.stopPropagation();
+              e.preventDefault();
+            }}
             style={{
               position: "absolute",
               top: "50%",
