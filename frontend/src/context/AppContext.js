@@ -79,7 +79,7 @@ function AppInner({ children }) {
         activeWorkspace, setActiveWorkspace,
         setWorkspaces,
         setSnippets, setEditableBoxes, setLines, setConnections, setGroups,
-        setIsDirty, savingWorkspace, setSavingWorkspace,
+        isDirty, setIsDirty, savingWorkspace, setSavingWorkspace,
         setExistingSnippetsMap,
         viewStateRef,
         pendingSummaryWorkspaceId, setPendingSummaryWorkspaceId,
