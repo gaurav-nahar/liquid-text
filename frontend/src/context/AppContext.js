@@ -416,6 +416,12 @@ function AppInner({ children }) {
         openCasePdfBusyRef.current = true;
         setLoading(true);
         try {
+            // Save any pending data BEFORE switching context to avoid data loss
+            if (isDirty) {
+                await saveWorkspaceChanges();
+                await savePdfChanges();
+            }
+
             // Fall back to URL params if postMessage doesn't include diary context.
             const urlCtx = readCaseContextFromUrl();
             const effectiveDiaryNo = (diaryNo || "").trim() || urlCtx.diaryNo;
@@ -536,11 +542,19 @@ function AppInner({ children }) {
         }
     }, [
         setLoading, setPdfTabs, activatePdfTab,
-        PDF_TAB_COLORS, cachePdfBlobUrl, ensureCaseWorkspace, closePanel2, setCasePdfList
+        PDF_TAB_COLORS, cachePdfBlobUrl, ensureCaseWorkspace, closePanel2, setCasePdfList,
+        isDirty, saveWorkspaceChanges, savePdfChanges
     ]);
 
     const handlePDFSelect = useCallback(async (url, fileName, originalPath) => {
         if (loading) return;
+        
+        // Ensure any unsaved changes to the current workspace/PDF are saved before jumping to another
+        if (isDirty) {
+            await saveWorkspaceChanges();
+            await savePdfChanges();
+        }
+
         setLoading(true);
         setSelectedPDF(url);
         setPdfName(fileName);
@@ -567,13 +581,27 @@ function AppInner({ children }) {
                     })
                     .catch(e => console.error("PDF registration failed:", e));
             } else {
-                // Non-case mode: use PDF-based workspace (existing behavior)
-                const wsRes = await api.listWorkspaces(newPdfId);
-                setWorkspaces(wsRes.data);
-                if (wsRes.data.length > 0) {
-                    setActiveWorkspace(wsRes.data[0]);
+                // Non-case mode: use a singular workspace across PDFs for LiquidText-like experience.
+                let currentWs = caseSessionRef.current.workspaceId ? {id: caseSessionRef.current.workspaceId} : activeWorkspace;
+                if (!currentWs) {
+                    const wsRes = await api.listWorkspaces(newPdfId);
+                    if (wsRes.data.length > 0) {
+                        currentWs = wsRes.data[0];
+                    } else {
+                        currentWs = await handleAddWorkspace("E-diary", newPdfId);
+                    }
+                    setWorkspaces(wsRes.data.length > 0 ? wsRes.data : [currentWs]);
+                    setActiveWorkspace(currentWs);
                 } else {
-                    await handleAddWorkspace("E-diary", newPdfId);
+                    // Do NOT list or switch if we already have one. Just register the new PDF so it shows in the list.
+                    api.registerPdfInWorkspace(currentWs.id, newPdfId, fileName, backendPath)
+                        .then(() => {
+                            setCasePdfList(prev => {
+                                if (prev.find(p => p.pdf_id === newPdfId)) return prev;
+                                return [...prev, { pdf_id: newPdfId, pdf_name: fileName, pdf_url: backendPath }];
+                            });
+                        })
+                        .catch(e => console.error("PDF registration failed:", e));
                 }
             }
 
@@ -593,12 +621,20 @@ function AppInner({ children }) {
         }
     }, [loading, setLoading, setSelectedPDF, setPdfName, setPdfId, setWorkspaces,
         setActiveWorkspace, handleAddWorkspace, setPdfTabs, setActiveTabId, PDF_TAB_COLORS,
-        ensureCaseWorkspace, setCasePdfList]);
+        ensureCaseWorkspace, setCasePdfList, activeWorkspace, isDirty, saveWorkspaceChanges, savePdfChanges]);
 
-    const switchPdfTab = useCallback((tab) => {
+    const switchPdfTab = useCallback(async (tab) => {
         if (activeTabId === tab.tabId) return;
+        
+        // Save current state before switching to another tab, otherwise PDF annotations
+        // for the old PDF might get lost or saved to the new PDF ID.
+        if (isDirty) {
+            await saveWorkspaceChanges();
+            await savePdfChanges();
+        }
+        
         activatePdfTab(tab);
-    }, [activeTabId, activatePdfTab]);
+    }, [activeTabId, activatePdfTab, isDirty, saveWorkspaceChanges, savePdfChanges]);
 
     const closePdfTab = useCallback((tabId) => {
         setPdfTabs(prev => {
