@@ -1,4 +1,5 @@
 import React, { useRef, useState, useEffect, memo } from "react";
+import { motion } from "framer-motion";
 import { useCanvasStable } from "./InfiniteCanvas";
 import ItemContextMenu from "./ItemContextMenu";
 import RichTextToolbar from "./RichTextToolbar";
@@ -128,6 +129,7 @@ const DraggableNote = memo(({
 
     const el = e.currentTarget;
     el.setPointerCapture(e.pointerId);
+    onDrag?.(null, null, "resize-start");
 
     const doResize = (moveEvent) => {
       const scale = getScale() || 1;
@@ -212,13 +214,18 @@ const DraggableNote = memo(({
       setTempText(snippet.text || "");
       setIsEditing(false);
       setShowSizeMenu(false);
+      e.stopPropagation();
+      return;
     }
+    // Let Ctrl/Cmd shortcuts (Ctrl+Z, Ctrl+S, Ctrl+A etc.) pass through to window
+    if (e.ctrlKey || e.metaKey) return;
+    // Block arrow keys and other keys from triggering canvas shortcuts
     e.stopPropagation();
   };
 
   return (
     <>
-      <div
+      <motion.div
         ref={noteRef}
         id={`workspace-item-${snippet.id}`}
         onPointerDown={handlePointerDown}
@@ -234,6 +241,9 @@ const DraggableNote = memo(({
             setTimeout(() => editorRef.current?.focus(), 50);
           }
         }}
+        initial={{ opacity: 0, scale: 0.85 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.18, ease: "easeOut" }}
         style={{
           position: "absolute",
           left: snippet.x,
@@ -345,7 +355,7 @@ const DraggableNote = memo(({
           >{sourcePdfName}</div>
         )}
 
-        {/* ❌ Delete Button */}
+        {/* 🗑 Delete Button */}
         {selected && (
           <div
             onPointerDown={e => { e.stopPropagation(); e.preventDefault(); }}
@@ -353,26 +363,27 @@ const DraggableNote = memo(({
             title="Delete"
             style={{
               position: "absolute",
-              top: -8,
-              right: -8,
-              width: 20,
-              height: 20,
+              top: -10,
+              right: -10,
+              width: 26,
+              height: 26,
               borderRadius: "50%",
-              background: "#ff4d4f",
-              color: "white",
+              background: "#fff",
+              color: "#9ca3af",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              fontSize: 12,
-              fontWeight: 700,
+              fontSize: 13,
               cursor: "pointer",
               zIndex: 40,
-              boxShadow: "0 1px 4px rgba(0,0,0,0.2)",
-              lineHeight: 1,
+              boxShadow: "0 2px 6px rgba(0,0,0,0.25)",
               userSelect: "none",
+              border: "1.5px solid #d1d5db",
             }}
+            onMouseEnter={e => { e.currentTarget.style.color = "#ef4444"; e.currentTarget.style.borderColor = "#ef4444"; e.currentTarget.style.background = "#fff5f5"; }}
+            onMouseLeave={e => { e.currentTarget.style.color = "#9ca3af"; e.currentTarget.style.borderColor = "#d1d5db"; e.currentTarget.style.background = "#fff"; }}
           >
-            ×
+            <i className="bi bi-trash3-fill" />
           </div>
         )}
 
@@ -477,7 +488,7 @@ const DraggableNote = memo(({
             +
           </div>
         )}
-      </div>
+      </motion.div>
 
       {/* ✅ Context Menu */}
       {contextMenu && (

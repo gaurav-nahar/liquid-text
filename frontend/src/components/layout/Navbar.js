@@ -155,6 +155,7 @@ export default function Navbar() {
         handleGlobalSave,
         pdfRef,
         pdfDrawingColor, setPdfDrawingColor,
+        penSize, setPenSize,
         handleUndo, handleRedo, canUndo, canRedo,
         // PDF tools
         zoomLevel, setZoomLevel,
@@ -308,7 +309,7 @@ export default function Navbar() {
                                 setShowPenColors(false);
                             }}
                             title="Highlight Brush"
-                        >{icons.highlightBrush}</button>
+                        ><i className="bi bi-highlighter" style={{ fontSize: 16 }} /></button>
                         {(tool === TOOL_MODES.HIGHLIGHT_BRUSH && showHighlighterColors) && (
                             <div style={{
                                 position: 'absolute', top: '100%', left: 0, marginTop: 6,
@@ -344,7 +345,7 @@ export default function Navbar() {
                 </div>
                 <div className="tool-group">
                     <button className={`tool-btn ${tool === TOOL_MODES.SELECT ? "active" : ""}`} onClick={() => setTool(TOOL_MODES.SELECT)} title="Select">{icons.select}</button>
-                    <button className={`tool-btn ${tool === TOOL_MODES.DRAW_LINE ? "active" : ""}`} onClick={() => setTool(TOOL_MODES.DRAW_LINE)} title="Connect Notes (workspace)">{icons.connection}</button>
+                    {/* <button className={`tool-btn ${tool === TOOL_MODES.DRAW_LINE ? "active" : ""}`} onClick={() => setTool(TOOL_MODES.DRAW_LINE)} title="Connect Notes (workspace)">{icons.connection}</button> */}
                     <button className={`tool-btn ${tool === TOOL_MODES.PDF_CONNECT ? "active" : ""}`} onClick={() => setTool(TOOL_MODES.PDF_CONNECT)} title="PDF Connect Line (click two points in PDF)">{icons.pdfConnect}</button>
                     <button className={`tool-btn ${tool === TOOL_MODES.ADD_BOX ? "active" : ""}`} onClick={() => setTool(TOOL_MODES.ADD_BOX)} title="Add Text Box">{icons.textBox}</button>
 
@@ -368,25 +369,41 @@ export default function Navbar() {
                                 position: 'absolute', top: '100%', left: '50%',
                                 transform: 'translateX(-50%)',
                                 marginTop: 6,
-                                display: 'flex', gap: 6, background: 'white',
-                                padding: '6px 10px', borderRadius: 20,
+                                display: 'flex', flexDirection: 'column', gap: 8, background: 'white',
+                                padding: '8px 12px', borderRadius: 14,
                                 border: '1px solid #ddd', boxShadow: '0 4px 12px rgba(0,0,0,0.12)',
                                 zIndex: 600,
                                 whiteSpace: 'nowrap',
                             }}>
-                                {['#000000', '#ff3b30', '#007aff', '#34c759', '#ffcc00', '#ff9500', '#af52de', '#5856d6', '#8e8e93', '#000080'].map(color => (
-                                    <div key={color} onClick={() => {
-                                        setPdfDrawingColor(color);
-                                        setShowPenColors(false);
-                                    }} style={{
-                                        width: 18, height: 18, borderRadius: '50%', backgroundColor: color,
-                                        cursor: 'pointer',
-                                        border: pdfDrawingColor === color ? '2px solid #333' : '1.5px solid #ddd',
-                                        transform: pdfDrawingColor === color ? 'scale(1.25)' : 'none',
-                                        transition: 'transform 0.15s',
-                                        flexShrink: 0,
-                                    }} />
-                                ))}
+                                {/* Colors row */}
+                                <div style={{ display: 'flex', gap: 6 }}>
+                                    {['#000000', '#ff3b30', '#007aff', '#34c759', '#ffcc00', '#ff9500', '#af52de', '#5856d6', '#8e8e93', '#000080'].map(color => (
+                                        <div key={color} onClick={() => { setPdfDrawingColor(color); }} style={{
+                                            width: 18, height: 18, borderRadius: '50%', backgroundColor: color,
+                                            cursor: 'pointer',
+                                            border: pdfDrawingColor === color ? '2px solid #333' : '1.5px solid #ddd',
+                                            transform: pdfDrawingColor === color ? 'scale(1.25)' : 'none',
+                                            transition: 'transform 0.15s',
+                                            flexShrink: 0,
+                                        }} />
+                                    ))}
+                                </div>
+                                {/* Thickness row */}
+                                <div style={{ display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'center', paddingTop: 2, borderTop: '1px solid #f0f0f0' }}>
+                                    {[{ size: 2, label: 'S' }, { size: 4, label: 'M' }, { size: 8, label: 'L' }, { size: 14, label: 'XL' }].map(({ size, label }) => (
+                                        <div key={size} onClick={() => setPenSize(size)} title={`Size ${label}`} style={{
+                                            width: 28, height: 28, borderRadius: 6, cursor: 'pointer',
+                                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                            background: penSize === size ? '#e8f0fe' : 'transparent',
+                                            border: penSize === size ? '1.5px solid #4a90e2' : '1.5px solid #ddd',
+                                        }}>
+                                            <div style={{
+                                                width: Math.min(size * 2, 20), height: Math.min(size * 2, 20),
+                                                borderRadius: '50%', background: pdfDrawingColor,
+                                            }} />
+                                        </div>
+                                    ))}
+                                </div>
                             </div>
                         )}
                     </div>
@@ -437,16 +454,15 @@ export default function Navbar() {
                 >{icons.highlight}</button>
 
                 {/* Autosave + Save */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4, background: '#f5f5f5', padding: '2px', borderRadius: 6, border: '1px solid #ddd' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 2, background: '#f5f5f5', padding: '2px 3px', borderRadius: 6, border: '1px solid #ddd' }}>
                     <select
                         value={autosaveInterval}
                         onChange={(e) => setAutosaveInterval(parseInt(e.target.value))}
-                        style={{ border: 'none', background: 'transparent', fontSize: 12, color: '#555', padding: '4px 8px', cursor: 'pointer', outline: 'none', fontWeight: 500 }}
+                        style={{ border: 'none', background: 'transparent', fontSize: 11, color: '#666', padding: '2px 2px 2px 4px', cursor: 'pointer', outline: 'none', fontWeight: 500, maxWidth: 62 }}
                         title="Autosave Interval"
                     >
-                        <option value={0}>Autosave: Off</option>
+                        <option value={0}>Off</option>
                         <option value={3000}>3s</option>
-
                         <option value={30000}>30s</option>
                         <option value={60000}>1m</option>
                         <option value={300000}>5m</option>
@@ -456,10 +472,11 @@ export default function Navbar() {
                         className={`save-btn ${saving ? "saving" : ""}`}
                         onClick={handleGlobalSave}
                         disabled={saving || !pdfId}
-                        style={{ margin: 0, border: 'none', borderRadius: 4, padding: '6px 12px', fontSize: 13, height: 'auto' }}
+                        title={saving ? "Saving..." : "Save (Ctrl+S)"}
+                        style={{ margin: 0, border: 'none', borderRadius: 4, padding: '3px 8px', fontSize: 11, height: 'auto', display: 'flex', alignItems: 'center', gap: 3 }}
                     >
                         {icons.save}
-                        <span>{saving ? "Saving..." : "Save"}</span>
+                        <span>{saving ? "..." : "Save"}</span>
                     </button>
                 </div>
             </div>

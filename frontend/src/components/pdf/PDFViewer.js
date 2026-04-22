@@ -530,7 +530,7 @@ const PDFViewer = React.memo(
                                 <PDFDrawingLayer
                                     pageNum={parseInt(pageNum, 10)}
                                     width={info.wrapper.clientWidth} height={info.wrapper.clientHeight}
-                                    tool={tool} selectedColor={selectedColor}
+                                    tool={tool}
                                     zoomLevel={zoomLevel}
                                     isResizing={isResizing}
                                 />, info.wrapper

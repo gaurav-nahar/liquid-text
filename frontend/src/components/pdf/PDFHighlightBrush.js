@@ -1,23 +1,20 @@
 import React, { useEffect, useRef, useState, memo } from 'react';
-import { useApp } from '../../context/AppContext';
+import { usePDF } from '../../context/PDFContext';
+import { useUI } from '../../context/UIContext';
+import { useWorkspace } from '../../context/WorkspaceContext';
+import { useAppActions } from '../../context/AppContext';
+
 const PDFHighlightBrush = memo(({
     pageNum,
     width,
     height,
     zoomLevel = 1,
-    isResizing = false // 📏 Sync prop
+    isResizing = false
 }) => {
-    const {
-        tool,
-        brushHighlights: existingHighlights,
-        highlightBrushColor: selectedColor,
-        handleBrushHighlightCreate: onHighlightCreate,
-        selectedItem,
-        setSnippets,
-        setConnections,
-        setIsDirty,
-        hoveredAnnotationId,
-    } = useApp();
+    const { brushHighlights: existingHighlights } = usePDF();
+    const { tool, highlightBrushColor: selectedColor, hoveredAnnotationId } = useUI();
+    const { setSnippets, setConnections, setIsDirty, selectedItem } = useWorkspace();
+    const { handleBrushHighlightCreate: onHighlightCreate } = useAppActions();
     const isActive = tool === "highlight-brush";
     const canvasRef = useRef(null);
     const [isDrawing, setIsDrawing] = useState(false);
@@ -183,7 +180,8 @@ const PDFHighlightBrush = memo(({
                     x: -1000,
                     y: -1000,
                     pageNum: pageNum,
-                    data: { xPct: cx, yPct: cy, pageNum },
+                    xPct: cx,
+                    yPct: cy,
                     text: `Brush highlight p.${pageNum}`,
                 };
                 setSnippets(prev => [...prev, anchor]);

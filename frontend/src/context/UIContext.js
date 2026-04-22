@@ -33,9 +33,10 @@ export const UIProvider = ({ children }) => {
     const [pdfPanelWidth, setPdfPanelWidth] = useState(55);
     const [isResizing, setIsResizing] = useState(false);
 
-    // Drawing colours
+    // Drawing colours & size
     const [pdfDrawingColor, setPdfDrawingColor] = useState("black");
     const [highlightBrushColor, setHighlightBrushColor] = useState("#FFEB3B");
+    const [penSize, setPenSize] = useState(3);
 
     // Annotation hover highlight
     const [hoveredAnnotationId, setHoveredAnnotationId] = useState(null);
@@ -174,6 +175,7 @@ export const UIProvider = ({ children }) => {
         pdfPanelWidth, setPdfPanelWidth,
         isResizing, setIsResizing,
         pdfDrawingColor, setPdfDrawingColor,
+        penSize, setPenSize,
         highlightBrushColor, setHighlightBrushColor,
         showThumbnails, setShowThumbnails,
         showPageJump, setShowPageJump,
@@ -199,7 +201,7 @@ export const UIProvider = ({ children }) => {
         openInPanel2, closePanel2,
     }), [
         tool, loading, userId, autosaveInterval, zoomLevel, pdfRenderScale, pdfPanelWidth, isResizing,
-        pdfDrawingColor, highlightBrushColor, showThumbnails, showPageJump, showHighlightsList,
+        pdfDrawingColor, penSize, highlightBrushColor, showThumbnails, showPageJump, showHighlightsList,
         hoveredAnnotationId,
         showWorkspaceSidebar, showBookmarks, showPenColors, showHighlighterColors, pdfTabs, activeTabId, casePdfList, secondaryPdfs,
         panel2TabId, panel2PdfId, panel2PdfUrl, panel2PdfName,

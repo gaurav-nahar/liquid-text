@@ -51,6 +51,7 @@ const Workspace = () => {
         TOOL_MODES,
         showWorkspaceSidebar, setShowWorkspaceSidebar,
         pdfDrawingColor,
+        penSize,
         pdfTabs,
         panel2PdfId,
         startDragWire,
@@ -365,7 +366,7 @@ const Workspace = () => {
                         [TOOL_MODES.DRAW_LINE]:       "crosshair",
                         [TOOL_MODES.ADD_BOX]:         "crosshair",
                         [TOOL_MODES.PEN]:             "crosshair",
-                        [TOOL_MODES.ERASER]:          "cell",
+                        [TOOL_MODES.ERASER]:          "crosshair",
                         [TOOL_MODES.HIGHLIGHT_BRUSH]: "crosshair",
                         [TOOL_MODES.STICKY_NOTE]:     "copy",
                     }[tool] || "default",
@@ -438,6 +439,7 @@ const Workspace = () => {
                     lines={lines}
                     setLines={setLinesWithDirty}
                     selectedColor={pdfDrawingColor}
+                    penSize={penSize}
                 />
 
                 <ConnectionLines
@@ -495,10 +497,11 @@ const Workspace = () => {
                                 }
                             }}
                             onColorChange={(color) => {
+                                recordHistory(getSnapshot());
                                 setSnippetsWithDirty(prev => prev.map(n => n.id === s.id ? { ...n, bg_color: color } : n));
                             }}
                             onDrag={(dx, dy, action, idOrItem) => {
-                                if (action === "drag-start") {
+                                if (action === "drag-start" || action === "resize-start") {
                                     recordHistory(getSnapshot());
                                 } else if (action === "cut" || action === "delete") {
                                     handleDeleteSnippet(idOrItem);
@@ -511,6 +514,7 @@ const Workspace = () => {
                                         )
                                     );
                                 } else if (action === "edit") {
+                                    recordHistory(getSnapshot());
                                     setSnippetsWithDirty((prev) =>
                                         prev.map((note) =>
                                             note.id === idOrItem.id ? { ...note, text: idOrItem.text } : note

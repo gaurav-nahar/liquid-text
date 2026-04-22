@@ -1,4 +1,5 @@
 import React, { useRef, useState, useEffect, useCallback, createContext, useContext, useMemo } from 'react';
+import { usePinch } from '@use-gesture/react';
 
 const WORKSPACE_SECTIONS = [
     { id: 'ws-1', x: 0, y: 0, width: 1100, height: 1500, color: '#e8f3ff' },
@@ -40,8 +41,7 @@ const InfiniteCanvas = React.forwardRef(({ children, className, style, initialSc
     const isPanning = useRef(false);
     const lastMousePos = useRef({ x: 0, y: 0 });
     const isSpacePressed = useRef(false);
-    const isZooming = useRef(false); // Track if 2-finger zoom started on canvas
-    const activePointers = useRef(new Map()); // pointerId -> {x, y} for pinch zoom
+    const isPinching = useRef(false); // true while @use-gesture pinch is active
 
     // Refs for stable access in callbacks without re-creating functions
     const panRef = useRef(pan);
@@ -127,6 +127,37 @@ const InfiniteCanvas = React.forwardRef(({ children, className, style, initialSc
         getPan: () => panRef.current
     }), [screenToWorld, worldToScreen]);
 
+    // 👌 Pinch-to-zoom via @use-gesture/react — replaces manual activePointers Map
+    usePinch(
+        ({ origin, offset: [pinchScale], first, last, event, memo }) => {
+            event?.preventDefault?.();
+            if (first) {
+                isPinching.current = true;
+                isPanning.current = false;
+                memo = { initialScale: scaleRef.current, initialPan: panRef.current };
+            }
+            if (!memo) return;
+
+            const rect = containerRef.current?.getBoundingClientRect();
+            if (!rect) return memo;
+
+            const ox = origin[0] - rect.left;
+            const oy = origin[1] - rect.top;
+            const wx = (ox - memo.initialPan.x) / memo.initialScale;
+            const wy = (oy - memo.initialPan.y) / memo.initialScale;
+
+            const newScale = Math.min(Math.max(0.1, pinchScale * memo.initialScale), 5);
+            const newPan = clampPan(ox - wx * newScale, oy - wy * newScale, newScale);
+
+            setScale(newScale);
+            setPan(newPan);
+
+            if (last) isPinching.current = false;
+            return memo;
+        },
+        { target: containerRef, eventOptions: { passive: false }, pinchOnWheel: false }
+    );
+
     // ⌨️ Keyboard Listeners for Space Pan
     useEffect(() => {
         const handleKeyDown = (e) => {
@@ -192,36 +223,14 @@ const InfiniteCanvas = React.forwardRef(({ children, className, style, initialSc
     }, [clampPan]); // Only depends on clampPan which is also stable if defined outside or wrapped in useCallback
 
     // 🖱️✏️📱 Unified Pointer Down (mouse + touch + pen/stylus)
-    const lastTouchDistance = useRef(0);
-    const lastTouchCenter = useRef({ x: 0, y: 0 });
-
+    // Pinch zoom is handled by usePinch above; this only deals with pan.
     const handlePointerDown = (e) => {
         if (e.defaultPrevented) return;
-
-        // Track every pointer for pinch-zoom detection
-        activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-
-        if (activePointers.current.size === 2) {
-            // Two-finger / dual-pen pinch zoom
-            isPanning.current = false;
-            isZooming.current = true;
-            const pts = [...activePointers.current.values()];
-            const dx = pts[0].x - pts[1].x;
-            const dy = pts[0].y - pts[1].y;
-            lastTouchDistance.current = Math.sqrt(dx * dx + dy * dy);
-            lastTouchCenter.current = {
-                x: (pts[0].x + pts[1].x) / 2,
-                y: (pts[0].y + pts[1].y) / 2
-            };
-            return;
-        }
+        if (isPinching.current) return; // let usePinch own multi-touch
 
         const isMiddleClick = e.button === 1;
         const isActionButton = e.button === 0 || e.pointerType === 'pen' || e.pointerType === 'touch';
-        const isSpacePan = isSpacePressed.current;
-
-        const shouldPan = isMiddleClick ||
-            (isActionButton && (e.altKey || isSpacePan || panningEnabled));
+        const shouldPan = isMiddleClick || (isActionButton && (e.altKey || isSpacePressed.current || panningEnabled));
 
         if (shouldPan) {
             e.preventDefault();
@@ -229,62 +238,22 @@ const InfiniteCanvas = React.forwardRef(({ children, className, style, initialSc
             lastMousePos.current = { x: e.clientX, y: e.clientY };
             document.body.style.cursor = 'grabbing';
             if (containerRef.current) containerRef.current.style.cursor = 'grabbing';
-            // Capture pointer so we never lose it during fast movement (key for Wacom pen)
             e.currentTarget.setPointerCapture(e.pointerId);
         }
     };
 
     useEffect(() => {
         const handlePointerMove = (e) => {
-            // Keep pointer position map up to date
-            if (activePointers.current.has(e.pointerId)) {
-                activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-            }
-
-            if (activePointers.current.size >= 2 && isZooming.current) {
-                // Pinch zoom
-                e.preventDefault();
-                const currentScale = scaleRef.current;
-                const currentPan = panRef.current;
-                const pts = [...activePointers.current.values()];
-                const dx = pts[0].x - pts[1].x;
-                const dy = pts[0].y - pts[1].y;
-                const distance = Math.sqrt(dx * dx + dy * dy);
-                const center = {
-                    x: (pts[0].x + pts[1].x) / 2,
-                    y: (pts[0].y + pts[1].y) / 2
-                };
-
-                const factor = distance / lastTouchDistance.current;
-                let newScale = Math.min(Math.max(0.1, currentScale * factor), 5);
-
-                const rect = containerRef.current.getBoundingClientRect();
-                const mx = center.x - rect.left;
-                const my = center.y - rect.top;
-                const wx = (mx - currentPan.x) / currentScale;
-                const wy = (my - currentPan.y) / currentScale;
-
-                setPan(clampPan(mx - wx * newScale, my - wy * newScale, newScale));
-                setScale(newScale);
-                lastTouchDistance.current = distance;
-                lastTouchCenter.current = center;
-            } else if (isPanning.current) {
-                e.preventDefault();
-                const dx = e.clientX - lastMousePos.current.x;
-                const dy = e.clientY - lastMousePos.current.y;
-                setPan(prev => clampPan(prev.x + dx, prev.y + dy, scaleRef.current));
-                lastMousePos.current = { x: e.clientX, y: e.clientY };
-            }
+            if (!isPanning.current || isPinching.current) return;
+            e.preventDefault();
+            const dx = e.clientX - lastMousePos.current.x;
+            const dy = e.clientY - lastMousePos.current.y;
+            setPan(prev => clampPan(prev.x + dx, prev.y + dy, scaleRef.current));
+            lastMousePos.current = { x: e.clientX, y: e.clientY };
         };
 
-        const handlePointerUp = (e) => {
-            activePointers.current.delete(e.pointerId);
-
-            if (activePointers.current.size < 2) {
-                isZooming.current = false;
-            }
-
-            if (isPanning.current && activePointers.current.size === 0) {
+        const handlePointerUp = () => {
+            if (isPanning.current) {
                 isPanning.current = false;
                 document.body.style.cursor = 'default';
                 if (containerRef.current) {

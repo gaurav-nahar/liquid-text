@@ -1,5 +1,22 @@
 import { useEffect, useCallback } from "react";
+import { getStroke } from "perfect-freehand";
 import api from "../api/api";
+
+function getSvgPathFromStroke(stroke) {
+    if (!stroke.length) return '';
+    const d = stroke.reduce(
+        (acc, [x0, y0], i, arr) => {
+            const [x1, y1] = arr[(i + 1) % arr.length];
+            acc.push(x0, y0, (x0 + x1) / 2, (y0 + y1) / 2);
+            return acc;
+        },
+        ['M', ...stroke[0], 'Q']
+    );
+    d.push('Z');
+    return d.join(' ');
+}
+
+const STROKE_OPTIONS = { thinning: 0.6, smoothing: 0.5, streamline: 0.5, simulatePressure: true };
 
 // 💾 Save PDF Annotations (Highlights, Text, Drawings)
 const useWorkspaceSaver = (context, enableAutosave = true) => {
@@ -55,7 +72,8 @@ const useWorkspaceSaver = (context, enableAutosave = true) => {
                 pdf_drawing_lines: pdfLines.map(l => ({
                     id: (typeof l.id === 'number') ? l.id : null,
                     page_num: l.pageNum,
-                    points: l.points,
+                    // inputPts = [[x,y,p],...] new format; points = [x,y,...] old flat format
+                    points: l.inputPts || l.points || [],
                     color: l.color,
                     stroke_width: l.width
                 })),
@@ -80,9 +98,19 @@ const useWorkspaceSaver = (context, enableAutosave = true) => {
                 setPdfAnnotations(res.data.pdf_texts.map(t => ({
                     id: t.id, pageNum: t.page_num, text: t.text, xPct: t.x_pct, yPct: t.y_pct, isEditing: false
                 })));
-                setPdfLines(res.data.pdf_drawing_lines.map(l => ({
-                    id: l.id, pageNum: l.page_num, points: l.points, color: l.color, width: l.stroke_width, tool: "pen"
-                })));
+                setPdfLines(res.data.pdf_drawing_lines.map(l => {
+                    const pts = l.points || [];
+                    const isNewFormat = pts.length > 0 && Array.isArray(pts[0]);
+                    if (isNewFormat) {
+                        // pts = [[x,y,p],...] — reconstruct svgPath via perfect-freehand
+                        const svgPath = getSvgPathFromStroke(
+                            getStroke(pts, { ...STROKE_OPTIONS, last: true })
+                        );
+                        return { id: l.id, pageNum: l.page_num, tool: "pen", color: l.color, width: l.stroke_width, inputPts: pts, svgPath };
+                    }
+                    // old flat format [x,y,x,y,...] — render as Line
+                    return { id: l.id, pageNum: l.page_num, tool: "pen", color: l.color, width: l.stroke_width, points: pts };
+                }));
                 setBrushHighlights(res.data.brush_highlights.map(h => ({
                     id: `brush-${h.id}`, serverId: h.id, pageNum: h.page_num, path: h.path_data, color: h.color, brushWidth: h.brush_width
                 })));
