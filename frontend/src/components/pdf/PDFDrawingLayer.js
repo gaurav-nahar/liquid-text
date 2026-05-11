@@ -22,13 +22,12 @@ function getSvgPathFromStroke(stroke) {
 const BASE_STROKE_OPTIONS = {
     thinning: 0.6,
     smoothing: 0.5,
-    streamline: 0.5,
-    simulatePressure: true,
+    streamline: 0.3,
 };
 
 const PDFDrawingLayer = memo(({ pageNum, width, height, tool, zoomLevel = 1 }) => {
     const { pdfLines: lines, setPdfLines: setLines } = usePDF();
-    const { hoveredAnnotationId, pdfDrawingColor, penSize = 4 } = useUI();
+    const { hoveredAnnotationId, pdfDrawingColor, penSize = 3 } = useUI();
     const { setIsDirty } = useWorkspace();
 
     const colorRef = useRef(pdfDrawingColor);
@@ -46,8 +45,9 @@ const PDFDrawingLayer = memo(({ pageNum, width, height, tool, zoomLevel = 1 }) =
     // This is correct because the container is CSS-scaled by zoomLevel, so
     // 1 world unit = 1 container-CSS-px = zoomLevel viewport pixels.
     const points        = useRef([]);
-    const rafRef        = useRef(null);
-    const lastPos       = useRef({ x: 0, y: 0 });
+    const rafRef          = useRef(null);
+    const lastPos         = useRef({ x: 0, y: 0 });
+    const hasPressureRef  = useRef(false);
 
     const updateLines = useCallback((updater) => {
         setLines(updater);
@@ -91,6 +91,7 @@ const PDFDrawingLayer = memo(({ pageNum, width, height, tool, zoomLevel = 1 }) =
         const stroke = getStroke(points.current, {
             ...BASE_STROKE_OPTIONS,
             size: sizeRef.current,
+            simulatePressure: !hasPressureRef.current,
         });
         const path = new Path2D(getSvgPathFromStroke(stroke));
         ctx.fillStyle = colorRef.current;
@@ -107,6 +108,7 @@ const PDFDrawingLayer = memo(({ pageNum, width, height, tool, zoomLevel = 1 }) =
 
         isDrawing.current = true;
         const pressure = e.pressure > 0 ? e.pressure : 0.5;
+        hasPressureRef.current = e.pointerType === 'pen' && e.pressure > 0;
         const { wx, wy } = getPos(e);
 
         lastPos.current = { x: wx, y: wy };
@@ -128,14 +130,19 @@ const PDFDrawingLayer = memo(({ pageNum, width, height, tool, zoomLevel = 1 }) =
         const { wx, wy } = getPos(e);
 
         if (tool === "pen") {
-            const dx = wx - lastPos.current.x;
-            const dy = wy - lastPos.current.y;
-            if (dx * dx + dy * dy < 0.25) return;
-            lastPos.current = { x: wx, y: wy };
-
-            points.current.push([wx, wy, pressure]);
-
-            if (!rafRef.current) {
+            const events = e.getCoalescedEvents?.() ?? [e];
+            let moved = false;
+            for (const ce of events) {
+                const cp = ce.pressure > 0 ? ce.pressure : 0.5;
+                const { wx: cx, wy: cy } = getPos(ce);
+                const dx = cx - lastPos.current.x;
+                const dy = cy - lastPos.current.y;
+                if (dx * dx + dy * dy < 0.25) continue;
+                lastPos.current = { x: cx, y: cy };
+                points.current.push([cx, cy, cp]);
+                moved = true;
+            }
+            if (moved && !rafRef.current) {
                 rafRef.current = requestAnimationFrame(drawLiveStroke);
             }
         } else if (tool === "eraser") {
@@ -170,7 +177,7 @@ const PDFDrawingLayer = memo(({ pageNum, width, height, tool, zoomLevel = 1 }) =
                 ctx.clearRect(0, 0, liveCanvasRef.current.width, liveCanvasRef.current.height);
             }
             // same points & size → committed path is pixel-identical to live preview
-            const stroke  = getStroke(points.current, { ...BASE_STROKE_OPTIONS, size: sizeRef.current, last: true });
+            const stroke  = getStroke(points.current, { ...BASE_STROKE_OPTIONS, size: sizeRef.current, simulatePressure: !hasPressureRef.current, last: true });
             const svgPath = getSvgPathFromStroke(stroke);
             updateLines(prev => [...prev, {
                 id: `pdf-line-${Date.now()}-${Math.random()}`,

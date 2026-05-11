@@ -21,8 +21,7 @@ function getSvgPathFromStroke(stroke) {
 const BASE_STROKE_OPTIONS = {
     thinning: 0.6,
     smoothing: 0.5,
-    streamline: 0.5,
-    simulatePressure: true,
+    streamline: 0.3,
 };
 
 const isNear = (x1, y1, x2, y2, threshold = 15) => {
@@ -63,9 +62,10 @@ const DrawingCanvas = memo(({ tool, lines, setLines, selectedColor, penSize = 3 
     const lastScreenPos = useRef({ x: 0, y: 0 });
 
     // Refs so rAF callbacks always read latest values without stale closures
-    const colorRef = useRef(selectedColor);
-    const sizeRef  = useRef(penSize);
-    const scaleRef = useRef(scale);
+    const colorRef       = useRef(selectedColor);
+    const sizeRef        = useRef(penSize);
+    const scaleRef       = useRef(scale);
+    const hasPressureRef = useRef(false);
     useEffect(() => { colorRef.current = selectedColor; }, [selectedColor]);
     useEffect(() => { sizeRef.current  = penSize; },      [penSize]);
     useEffect(() => { scaleRef.current = scale; },        [scale]);
@@ -97,6 +97,7 @@ const DrawingCanvas = memo(({ tool, lines, setLines, selectedColor, penSize = 3 
         const stroke = getStroke(screenPoints.current, {
             ...BASE_STROKE_OPTIONS,
             size: sizeRef.current * scaleRef.current,
+            simulatePressure: !hasPressureRef.current,
         });
         const path = new Path2D(getSvgPathFromStroke(stroke));
         ctx.fillStyle = colorRef.current;
@@ -127,6 +128,7 @@ const DrawingCanvas = memo(({ tool, lines, setLines, selectedColor, penSize = 3 
 
         isDrawing.current = true;
         const pressure = e.pressure > 0 ? e.pressure : 0.5;
+        hasPressureRef.current = e.pointerType === 'pen' && e.pressure > 0;
         const worldPos  = screenToWorld(e.clientX, e.clientY);
         const canvas    = liveCanvasRef.current;
         const rect      = canvas?.getBoundingClientRect();
@@ -152,21 +154,22 @@ const DrawingCanvas = memo(({ tool, lines, setLines, selectedColor, penSize = 3 
         const worldPos  = screenToWorld(e.clientX, e.clientY);
 
         if (tool === "pen") {
-            const dx = e.clientX - lastScreenPos.current.x;
-            const dy = e.clientY - lastScreenPos.current.y;
-            if (dx * dx + dy * dy < 1) return;
-            lastScreenPos.current = { x: e.clientX, y: e.clientY };
-
-            inputPoints.current.push([worldPos.x, worldPos.y, pressure]);
-
+            const events = e.getCoalescedEvents?.() ?? [e];
             const canvas = liveCanvasRef.current;
-            if (canvas) {
-                const rect = canvas.getBoundingClientRect();
-                screenPoints.current.push([e.clientX - rect.left, e.clientY - rect.top, pressure]);
+            const rect   = canvas?.getBoundingClientRect();
+            let moved = false;
+            for (const ce of events) {
+                const dx = ce.clientX - lastScreenPos.current.x;
+                const dy = ce.clientY - lastScreenPos.current.y;
+                if (dx * dx + dy * dy < 1) continue;
+                lastScreenPos.current = { x: ce.clientX, y: ce.clientY };
+                const cp = ce.pressure > 0 ? ce.pressure : 0.5;
+                const wp = screenToWorld(ce.clientX, ce.clientY);
+                inputPoints.current.push([wp.x, wp.y, cp]);
+                if (rect) screenPoints.current.push([ce.clientX - rect.left, ce.clientY - rect.top, cp]);
+                moved = true;
             }
-
-            // schedule a single rAF redraw — never queues more than one
-            if (!rafRef.current) {
+            if (moved && !rafRef.current) {
                 rafRef.current = requestAnimationFrame(drawLiveStroke);
             }
 
@@ -208,7 +211,7 @@ const DrawingCanvas = memo(({ tool, lines, setLines, selectedColor, penSize = 3 
                 ctx.clearRect(0, 0, liveCanvasRef.current.width, liveCanvasRef.current.height);
             }
             // commit world-space perfect-freehand path to Konva
-            const stroke  = getStroke(inputPoints.current, { ...BASE_STROKE_OPTIONS, size: sizeRef.current, last: true });
+            const stroke  = getStroke(inputPoints.current, { ...BASE_STROKE_OPTIONS, size: sizeRef.current, simulatePressure: !hasPressureRef.current, last: true });
             const svgPath = getSvgPathFromStroke(stroke);
             setLines(prev => [...prev, {
                 tool: "pen",
