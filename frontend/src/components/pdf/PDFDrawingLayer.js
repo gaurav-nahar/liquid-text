@@ -21,8 +21,7 @@ function getSvgPathFromStroke(stroke) {
 
 const BASE_STROKE_OPTIONS = {
     thinning: 0.6,
-    smoothing: 0.5,
-    streamline: 0.3,
+    smoothing: 0.5    streamline: 0.3,
 };
 
 const PDFDrawingLayer = memo(({ pageNum, width, height, tool, zoomLevel = 1 }) => {
