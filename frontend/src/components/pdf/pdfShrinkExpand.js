@@ -171,7 +171,8 @@ export const applyAllShrinks = (
     const applyBelow = (el, top, scale, zIndex) => {
         el.style.top = `${top}px`;
         el.style.transformOrigin = "top center";
-        el.style.transform = `scaleY(${scale})`;
+        el.style.transform = "translateY(0) scaleY(1)";
+        el.style.clipPath = `inset(0 0 ${(1 - scale) * 100}% 0)`;
         el.style.zIndex = zIndex;
         el.style.transition = TRANSITION;
         el.style.opacity = scale < 0.01 ? "0" : "1";
@@ -181,7 +182,8 @@ export const applyAllShrinks = (
         const top = bottom - el.offsetHeight;
         el.style.top = `${top}px`;
         el.style.transformOrigin = "bottom center";
-        el.style.transform = `scaleY(${scale})`;
+        el.style.transform = "translateY(0) scaleY(1)";
+        el.style.clipPath = `inset(${(1 - scale) * 100}% 0 0 0)`;
         el.style.zIndex = zIndex;
         el.style.transition = TRANSITION;
         el.style.opacity = scale < 0.01 ? "0" : "1";
@@ -201,6 +203,7 @@ export const applyAllShrinks = (
             if (!el) return;
             const scale = shrinkMapRef.current[pageNum] ?? 1;
             applyBelow(el, nextTop, scale, 100 - idx);
+            nextTop += el.offsetHeight * scale; // Increment so the next page sits below this one!
         });
     });
 
@@ -217,6 +220,7 @@ export const applyAllShrinks = (
             if (!el) return;
             const scale = shrinkMapRef.current[pageNum] ?? 1;
             applyAbove(el, nextBottom, scale, 100 - idx);
+            nextBottom -= el.offsetHeight * scale; // Decrement so the next page sits above this one!
         });
     });
 

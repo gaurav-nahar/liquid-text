@@ -26,6 +26,7 @@ from src.models.line_model import Line
 from src.models.connection_model import Connection
 from src.models.workspace_model import Workspace
 from src.models.workspace_group_model import WorkspaceGroup
+from src.models.workspace_page_model import WorkspacePage
 
 # Request Models
 from src.request.snippet_request import SnippetCreate
@@ -179,6 +180,7 @@ async def save_workspace(
     lines_raw = {}
     connections_raw = {}
     groups_raw = {}
+    pages_raw = {}
 
     cross_pdf_links_json = "[]"
 
@@ -200,6 +202,9 @@ async def save_workspace(
         elif key.startswith("groups"):
             idx, field = extract_index_and_key(key)
             groups_raw.setdefault(idx, {})[field] = value
+        elif key.startswith("pages"):
+            idx, field = extract_index_and_key(key)
+            pages_raw.setdefault(idx, {})[field] = value
 
     for key, val in form.items():
         if isinstance(val, UploadFile):
@@ -404,6 +409,44 @@ async def save_workspace(
         # No groups sent → clear all groups for this workspace
         db.query(WorkspaceGroup).filter(WorkspaceGroup.workspace_id == workspace_id).delete(synchronize_session=False)
 
+    # 9. UPSERT PAGES
+    touched_page_client_ids = []
+    for p_dict in pages_raw.values():
+        client_id = p_dict.get("id", "")
+        if not client_id:
+            continue
+        touched_page_client_ids.append(client_id)
+        existing_page = db.query(WorkspacePage).filter(
+            WorkspacePage.workspace_id == workspace_id,
+            WorkspacePage.client_id == client_id
+        ).first()
+        if existing_page:
+            existing_page.x = safe_float(p_dict.get("x"), existing_page.x)
+            existing_page.y = safe_float(p_dict.get("y"), existing_page.y)
+            existing_page.width = safe_float(p_dict.get("width"), existing_page.width)
+            existing_page.height = safe_float(p_dict.get("height"), existing_page.height)
+            existing_page.color = p_dict.get("color", existing_page.color)
+        else:
+            new_page = WorkspacePage(
+                workspace_id=workspace_id,
+                client_id=client_id,
+                x=safe_float(p_dict.get("x"), 0.0),
+                y=safe_float(p_dict.get("y"), 0.0),
+                width=safe_float(p_dict.get("width"), 1100.0),
+                height=safe_float(p_dict.get("height"), 1500.0),
+                color=p_dict.get("color", "#e8f3ff"),
+            )
+            db.add(new_page)
+    # Delete pages that were removed
+    if touched_page_client_ids:
+        db.query(WorkspacePage).filter(
+            WorkspacePage.workspace_id == workspace_id,
+            ~WorkspacePage.client_id.in_(touched_page_client_ids)
+        ).delete(synchronize_session=False)
+    else:
+        # No pages sent → clear all pages for this workspace
+        db.query(WorkspacePage).filter(WorkspacePage.workspace_id == workspace_id).delete(synchronize_session=False)
+
     # Save cross-PDF links JSON with remapped snippet/box endpoint IDs.
     try:
         raw_cross_links = json.loads(cross_pdf_links_json or "[]")
@@ -588,6 +631,22 @@ def close_pdf_in_workspace(
         db.commit()
         return {"success": True}
     return {"success": False, "message": "PDF not found in workspace"}
+
+
+@router.get("/pages/{workspace_id}")
+def get_workspace_pages(workspace_id: int, db: Session = Depends(get_db)):
+    pages = db.query(WorkspacePage).filter(WorkspacePage.workspace_id == workspace_id).all()
+    return [
+        {
+            "id": p.client_id,
+            "x": p.x,
+            "y": p.y,
+            "width": p.width,
+            "height": p.height,
+            "color": p.color,
+        }
+        for p in pages
+    ]
 
 
 @router.get("/groups/{workspace_id}")

@@ -1,5 +1,11 @@
 import React, { useEffect, useRef, useState } from "react";
 
+const SAVE_STATUS_CONFIG = {
+    pending: { text: "Auto saving...", color: "#f59e0b" },
+    saving:  { text: "Saving...",      color: "#3b82f6" },
+    saved:   { text: "Saved ✓",        color: "#10b981" },
+};
+
 export default function DocumentTabsFooter({
     documents,
     activeDocumentId,
@@ -7,6 +13,7 @@ export default function DocumentTabsFooter({
     onCreate,
     onRename,
     onDelete,
+    saveStatus = "idle",
 }) {
     const [editingId, setEditingId] = useState(null);
     const [draftTitle, setDraftTitle] = useState("");
@@ -29,6 +36,8 @@ export default function DocumentTabsFooter({
         onRename(editingId, draftTitle);
         setEditingId(null);
     };
+
+    const statusCfg = SAVE_STATUS_CONFIG[saveStatus];
 
     return (
         <div className="document-tabs-footer">
@@ -93,6 +102,25 @@ export default function DocumentTabsFooter({
             >
                 <i className="bi bi-plus-lg" aria-hidden="true" />
             </button>
+
+            {statusCfg && (
+                <div style={{
+                    flexShrink: 0, fontSize: 11, fontWeight: 600, color: statusCfg.color,
+                    display: "flex", alignItems: "center", gap: 4, paddingRight: 6,
+                    whiteSpace: "nowrap",
+                }}>
+                    {(saveStatus === "saving" || saveStatus === "pending") && (
+                        <span style={{
+                            width: 7, height: 7, borderRadius: "50%",
+                            border: `2px solid ${statusCfg.color}`,
+                            borderTopColor: "transparent",
+                            display: "inline-block",
+                            animation: "spin 0.8s linear infinite",
+                        }} />
+                    )}
+                    {statusCfg.text}
+                </div>
+            )}
         </div>
     );
 }

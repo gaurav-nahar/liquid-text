@@ -22,7 +22,7 @@ function getSvgPathFromStroke(stroke) {
 const BASE_STROKE_OPTIONS = {
     thinning: 0.6,
     smoothing: 0.5,
-    streamline: 0.3,
+    streamline: 0.5,
 };
 
 const PDFDrawingLayer = memo(({ pageNum, width, height, tool, zoomLevel = 1 }) => {
@@ -107,6 +107,7 @@ const PDFDrawingLayer = memo(({ pageNum, width, height, tool, zoomLevel = 1 }) =
         if (e.pointerType === 'mouse' && e.button !== 0) return;
 
         isDrawing.current = true;
+        e.target.setPointerCapture(e.pointerId);
         const pressure = e.pressure > 0 ? e.pressure : 0.5;
         hasPressureRef.current = e.pointerType === 'pen' && e.pressure > 0;
         const { wx, wy } = getPos(e);
@@ -131,10 +132,13 @@ const PDFDrawingLayer = memo(({ pageNum, width, height, tool, zoomLevel = 1 }) =
 
         if (tool === "pen") {
             const events = e.getCoalescedEvents?.() ?? [e];
+            // cache rect once — getBoundingClientRect per coalesced event causes layout thrashing
+            const rect = containerRef.current?.getBoundingClientRect();
             let moved = false;
             for (const ce of events) {
                 const cp = ce.pressure > 0 ? ce.pressure : 0.5;
-                const { wx: cx, wy: cy } = getPos(ce);
+                const cx = rect ? (ce.clientX - rect.left) / zoomLevel : 0;
+                const cy = rect ? (ce.clientY - rect.top)  / zoomLevel : 0;
                 const dx = cx - lastPos.current.x;
                 const dy = cy - lastPos.current.y;
                 if (dx * dx + dy * dy < 0.25) continue;

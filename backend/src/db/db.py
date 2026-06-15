@@ -17,6 +17,10 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     raise Exception("DATABASE_URL missing in .env file")
 
+# Normalize async driver to sync
+DATABASE_URL = DATABASE_URL.replace("postgresql+asyncpg://", "postgresql+psycopg2://")
+DATABASE_URL = DATABASE_URL.replace("postgres+asyncpg://", "postgresql+psycopg2://")
+
 
 def _read_int_env(name: str, default: int, minimum: int | None = None) -> int:
     raw_value = os.getenv(name)
@@ -61,7 +65,7 @@ else:
     db_pool_use_lifo = _read_bool_env("DB_POOL_USE_LIFO", True)
 
     connect_args = {}
-    if DATABASE_URL.startswith("postgresql"):
+    if DATABASE_URL.startswith("postgresql") or DATABASE_URL.startswith("postgres"):
         connect_args["connect_timeout"] = db_connect_timeout
         connect_args["application_name"] = os.getenv("DB_APPLICATION_NAME", "liquid-text-backend")
 

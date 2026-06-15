@@ -5,6 +5,7 @@ import ConnectionLines from "./ConnectionLines";
 import EditableTextBoxes from "./EditableTextBoxes";
 import DraggableNote from "./DraggableNote";
 import GroupLayer from "./GroupLayer";
+import { AnimatePresence } from "framer-motion";
 
 // Hooks
 import useSnippetHandlers from "../../hooks/useSnippetHandlers";
@@ -115,6 +116,13 @@ const Workspace = () => {
         return 1; // Fallback
     }, [canvasRef]);
 
+    const getPages = useCallback(() => {
+        if (canvasRef.current && canvasRef.current.getPages) {
+            return canvasRef.current.getPages();
+        }
+        return []; // Fallback
+    }, [canvasRef]);
+
     // Multi-select state for grouping
     const [selectedItems, setSelectedItems] = useState([]); // [{type: 'snippet'|'box', id: string}]
 
@@ -177,7 +185,7 @@ const Workspace = () => {
     // Hooks
     // Handles mouse/touch interactions in workspace (like drawing boxes). Calls UseBoxHandlers.js
     const { workspaceRef, drawingBox, handleMouseDown, handleMouseMove, handleMouseUp } =
-        useBoxHandlers({ tool, TOOL_MODES, setEditableBoxes: setEditableBoxesWithDirty, screenToWorld, recordHistory, getSnapshot }); // useBoxHandlers.js
+        useBoxHandlers({ tool, TOOL_MODES, setEditableBoxes: setEditableBoxesWithDirty, screenToWorld, getPages, recordHistory, getSnapshot }); // useBoxHandlers.js
 
     //  Handles dragging items from PDF to workspace. Calls UseSnippetHandlers.js
     const { handleSnippetDrop, addSnippet } = useSnippetHandlers({ // useSnippetHandlers.js
@@ -189,6 +197,7 @@ const Workspace = () => {
         setConnections: setConnectionsWithDirty, // Pass setter for link creation
         screenToWorld,
         getScale,
+        getPages,
         recordHistory,
         getSnapshot,
         showToast,
@@ -478,8 +487,9 @@ const Workspace = () => {
                 />
 
                 <div style={{ position: "relative", flexGrow: 1, zIndex: 3 }}>
-                    {snippets.filter(s => s.type !== 'anchor' && !collapsedItemIds.has(String(s.id))).map((s) => (
-                        <DraggableNote
+                    <AnimatePresence>
+                        {snippets.filter(s => s.type !== 'anchor' && !collapsedItemIds.has(String(s.id))).map((s) => (
+                            <DraggableNote
                             key={s.id ?? `${s.x}-${s.y}-${Math.random()}`}
                             snippet={s}
                             sourcePdfColor={pdfColorMap[String(s.pdf_id)]?.color || null}
@@ -553,6 +563,7 @@ const Workspace = () => {
                             } : null}
                         />
                     ))}
+                    </AnimatePresence>
                 </div>
             </InfiniteCanvas>
 

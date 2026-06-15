@@ -2,7 +2,9 @@ import React, { useRef, useEffect, useState, useCallback } from "react";
 import { useApp } from "../../context/AppContext";
 import api from "../../api/api";
 
-function BookmarkItem({ bm, onJump, onDelete, onRename }) {
+
+
+function BookmarkItem({ bm, onJump, onDelete, onRename, isCurrentPdf }) {
     const [editing, setEditing] = useState(false);
     const [name, setName] = useState(bm.name || `Page ${bm.page_num}`);
     const inputRef = useRef(null);
@@ -26,7 +28,7 @@ function BookmarkItem({ bm, onJump, onDelete, onRename }) {
             }}
             onMouseEnter={e => e.currentTarget.style.background = "#fffbeb"}
             onMouseLeave={e => e.currentTarget.style.background = ""}
-            onClick={() => { if (!editing) onJump(bm.page_num); }}
+            onClick={() => { if (!editing) onJump(bm); }}
         >
             {/* Bookmark ribbon icon + page number */}
             <div style={{ minWidth: 32, display: "flex", flexDirection: "column", alignItems: "center", paddingTop: 2 }}>
@@ -38,6 +40,20 @@ function BookmarkItem({ bm, onJump, onDelete, onRename }) {
 
             {/* Name / inline editor */}
             <div style={{ flex: 1, minWidth: 0 }}>
+                {bm.pdfName && (
+                    <div style={{
+                        fontSize: 10, fontWeight: 700, color: "#4f46e5",
+                        background: "#eef2ff", padding: "1px 6px", borderRadius: 4,
+                        marginBottom: 3, display: "inline-block",
+                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                        maxWidth: "100%",
+                    }}>
+                        {bm.pdfName}
+                        {!isCurrentPdf && (
+                            <span style={{ marginLeft: 4, color: "#9ca3af", fontWeight: 400 }}>↗</span>
+                        )}
+                    </div>
+                )}
                 {editing ? (
                     <input
                         ref={inputRef}
@@ -96,6 +112,9 @@ export default function BookmarksSidebar() {
         showBookmarks, setShowBookmarks,
         handleAddBookmark, handleDeleteBookmark,
         pdfRef,
+        pdfId,
+        pdfTabs,
+        switchPdfTab,
     } = useApp();
 
     const panelRef = useRef(null);
@@ -112,16 +131,32 @@ export default function BookmarksSidebar() {
         return () => { clearTimeout(t); document.removeEventListener("mousedown", handler); };
     }, [showBookmarks, setShowBookmarks]);
 
-    const handleJump = (pageNum) => {
-        pdfRef.current?.scrollToPage(pageNum);
-        setShowBookmarks(false);
-    };
+    const handleJump = useCallback((bm) => {
+        const jump = () => {
+            pdfRef.current?.scrollToPage(bm.page_num);
+            setShowBookmarks(false);
+        };
+
+        // If the bookmark belongs to the active PDF, just scroll
+        if (!bm.tabId || String(bm.pdf_id) === String(pdfId)) {
+            jump();
+            return;
+        }
+
+        // Switch to the correct PDF tab first, then scroll
+        const targetTab = pdfTabs.find(t => t.tabId === bm.tabId);
+        if (targetTab) {
+            switchPdfTab(targetTab);
+            setTimeout(jump, 350);
+        } else {
+            jump();
+        }
+    }, [pdfRef, pdfId, pdfTabs, switchPdfTab, setShowBookmarks]);
 
     const handleQuickAdd = async () => {
         const pg = pdfRef.current?.getCurrentPageNum?.() || 1;
         await handleAddBookmark(pg, addName.trim() || `Page ${pg}`);
-        setAddName("");
-        setShowAddForm(false);
+        setAddName("");        setShowAddForm(false);
     };
 
     const handleRename = useCallback(async (id, newName) => {
@@ -241,6 +276,7 @@ export default function BookmarksSidebar() {
                             onJump={handleJump}
                             onDelete={handleDeleteBookmark}
                             onRename={handleRename}
+                            isCurrentPdf={String(bm.pdf_id) === String(pdfId)}
                         />
                     ))
                 )}

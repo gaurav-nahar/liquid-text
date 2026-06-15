@@ -21,7 +21,9 @@ function getSvgPathFromStroke(stroke) {
 const BASE_STROKE_OPTIONS = {
     thinning: 0.6,
     smoothing: 0.5,
-    streamline: 0.3,
+    streamline: 0.5,
+    start: { taper: 4, cap: true },
+    end: { taper: 4, cap: true }
 };
 
 const isNear = (x1, y1, x2, y2, threshold = 15) => {
@@ -48,7 +50,7 @@ const CURSORS = {
 
 const DrawingCanvas = memo(({ tool, lines, setLines, selectedColor, penSize = 3 }) => {
     const isDrawing = useRef(false);
-    const { screenToWorld, pan, scale, containerRef } = useCanvas();
+    const { screenToWorld, getPages, pan, scale, containerRef } = useCanvas();
 
     const staticLayerRef = useRef(null);
     const liveCanvasRef  = useRef(null);
@@ -126,10 +128,21 @@ const DrawingCanvas = memo(({ tool, lines, setLines, selectedColor, penSize = 3 
         e.stopPropagation();
         if (e.pointerType === 'mouse' && e.button !== 0) return;
 
+        const worldPos  = screenToWorld(e.clientX, e.clientY);
+        
+        // Prevent drawing outside pages
+        const pages = getPages();
+        const isInsidePage = pages.some(p => 
+            worldPos.x >= p.x && worldPos.x <= p.x + p.width &&
+            worldPos.y >= p.y && worldPos.y <= p.y + p.height
+        );
+        if (!isInsidePage) return;
+
         isDrawing.current = true;
+        e.target.setPointerCapture(e.pointerId);
         const pressure = e.pressure > 0 ? e.pressure : 0.5;
         hasPressureRef.current = e.pointerType === 'pen' && e.pressure > 0;
-        const worldPos  = screenToWorld(e.clientX, e.clientY);
+        
         const canvas    = liveCanvasRef.current;
         const rect      = canvas?.getBoundingClientRect();
 
@@ -148,28 +161,40 @@ const DrawingCanvas = memo(({ tool, lines, setLines, selectedColor, penSize = 3 
     const handlePointerMove = (e) => {
         if (!isDrawing.current || (tool !== "pen" && tool !== "eraser")) return;
         if (e.pointerType === 'touch') return;
-        e.preventDefault();
 
-        const pressure = e.pressure > 0 ? e.pressure : 0.5;
         const worldPos  = screenToWorld(e.clientX, e.clientY);
 
+        // Check if cursor moved outside the page bounds
+        const pages = getPages();
+        const isInsidePage = pages.some(p => 
+            worldPos.x >= p.x && worldPos.x <= p.x + p.width &&
+            worldPos.y >= p.y && worldPos.y <= p.y + p.height
+        );
+
+        if (!isInsidePage) {
+            handlePointerUp(); // Auto-commit the stroke!
+            return;
+        }
+
+        e.preventDefault();
+        const pressure = e.pressure > 0 ? e.pressure : 0.5;
+
         if (tool === "pen") {
-            const events = e.getCoalescedEvents?.() ?? [e];
+            const dx = e.clientX - lastScreenPos.current.x;
+            const dy = e.clientY - lastScreenPos.current.y;
+            if (dx * dx + dy * dy < 1) return;
+            lastScreenPos.current = { x: e.clientX, y: e.clientY };
+
+            inputPoints.current.push([worldPos.x, worldPos.y, pressure]);
+
             const canvas = liveCanvasRef.current;
-            const rect   = canvas?.getBoundingClientRect();
-            let moved = false;
-            for (const ce of events) {
-                const dx = ce.clientX - lastScreenPos.current.x;
-                const dy = ce.clientY - lastScreenPos.current.y;
-                if (dx * dx + dy * dy < 1) continue;
-                lastScreenPos.current = { x: ce.clientX, y: ce.clientY };
-                const cp = ce.pressure > 0 ? ce.pressure : 0.5;
-                const wp = screenToWorld(ce.clientX, ce.clientY);
-                inputPoints.current.push([wp.x, wp.y, cp]);
-                if (rect) screenPoints.current.push([ce.clientX - rect.left, ce.clientY - rect.top, cp]);
-                moved = true;
+            if (canvas) {
+                const rect = canvas.getBoundingClientRect();
+                screenPoints.current.push([e.clientX - rect.left, e.clientY - rect.top, pressure]);
             }
-            if (moved && !rafRef.current) {
+
+            // schedule a single rAF redraw — never queues more than one
+            if (!rafRef.current) {
                 rafRef.current = requestAnimationFrame(drawLiveStroke);
             }
 
@@ -197,7 +222,7 @@ const DrawingCanvas = memo(({ tool, lines, setLines, selectedColor, penSize = 3 
         }
     };
 
-    const handlePointerUp = () => {
+    function handlePointerUp() {
         if (!isDrawing.current) return;
         isDrawing.current = false;
 

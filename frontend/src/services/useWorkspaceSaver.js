@@ -102,9 +102,8 @@ const useWorkspaceSaver = (context, enableAutosave = true) => {
                     const pts = l.points || [];
                     const isNewFormat = pts.length > 0 && Array.isArray(pts[0]);
                     if (isNewFormat) {
-                        // pts = [[x,y,p],...] — reconstruct svgPath via perfect-freehand
                         const svgPath = getSvgPathFromStroke(
-                            getStroke(pts, { ...STROKE_OPTIONS, last: true })
+                            getStroke(pts, { ...STROKE_OPTIONS, size: l.stroke_width || 3, simulatePressure: false, last: true })
                         );
                         return { id: l.id, pageNum: l.page_num, tool: "pen", color: l.color, width: l.stroke_width, inputPts: pts, svgPath };
                     }
@@ -184,7 +183,7 @@ const useWorkspaceSaver = (context, enableAutosave = true) => {
         lines.forEach((l, i) => {
             fd.append(`lines[${i}][id]`, l.id ?? "");
             fd.append(`lines[${i}][pdf_id]`, pdfId);
-            fd.append(`lines[${i}][points]`, JSON.stringify(l.points ?? []));
+            fd.append(`lines[${i}][points]`, JSON.stringify(l.inputPts || l.points || []));
             fd.append(`lines[${i}][color]`, l.color ?? "black");
             fd.append(`lines[${i}][stroke_width]`, l.width ?? 2);
         });
@@ -192,6 +191,26 @@ const useWorkspaceSaver = (context, enableAutosave = true) => {
         // View State
         if (viewStateRef.current) {
             localStorage.setItem(`view-${pdfId}-${activeWorkspace.id}`, JSON.stringify(viewStateRef.current));
+        }
+
+        // Pages (Read directly from localStorage where InfiniteCanvas keeps them)
+        try {
+            const storedPagesStr = localStorage.getItem('airpdf_workspace_pages');
+            if (storedPagesStr) {
+                const pagesArr = JSON.parse(storedPagesStr);
+                if (Array.isArray(pagesArr)) {
+                    pagesArr.forEach((p, i) => {
+                        fd.append(`pages[${i}][id]`, p.id || "");
+                        fd.append(`pages[${i}][x]`, p.x || 0);
+                        fd.append(`pages[${i}][y]`, p.y || 0);
+                        fd.append(`pages[${i}][width]`, p.width || 1100);
+                        fd.append(`pages[${i}][height]`, p.height || 1500);
+                        fd.append(`pages[${i}][color]`, p.color || "#e8f3ff");
+                    });
+                }
+            }
+        } catch (e) {
+            console.error("❌ Failed to parse pages for save", e);
         }
 
         // Groups
@@ -262,6 +281,18 @@ const useWorkspaceSaver = (context, enableAutosave = true) => {
         }, autosaveInterval);
         return () => clearInterval(timer);
     }, [autosaveInterval, pdfId, activeWorkspace, isDirty, savingWorkspace, savingPdf, savePdfChanges, saveWorkspaceChanges, enableAutosave]);
+
+    // Save 3 seconds after the last change — catches fast tab-closes before the 30s timer fires
+    useEffect(() => {
+        if (!enableAutosave || !isDirty || !pdfId || !activeWorkspace) return;
+        const timer = setTimeout(() => {
+            if (!savingWorkspace && !savingPdf) {
+                savePdfChanges();
+                saveWorkspaceChanges();
+            }
+        }, 3000);
+        return () => clearTimeout(timer);
+    }, [enableAutosave, isDirty, pdfId, activeWorkspace, savingWorkspace, savingPdf, savePdfChanges, saveWorkspaceChanges]);
 
     const handleGlobalSave = useCallback(async () => {
         if (savingWorkspace || savingPdf) return;

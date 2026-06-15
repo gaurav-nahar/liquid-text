@@ -28,7 +28,7 @@ const looksLikeBrokenPdfText = (value) => {
   return oddSymbolCount > 0 || suspiciousLatinWords.length > 0;
 };
 
-export default function useSnippetHandlers({ tool, TOOL_MODES, pdfRef, workspaceRef, setSnippets, setConnections, screenToWorld, getScale, recordHistory, getSnapshot, showToast }) {
+export default function useSnippetHandlers({ tool, TOOL_MODES, pdfRef, workspaceRef, setSnippets, setConnections, screenToWorld, getScale, getPages, recordHistory, getSnapshot, showToast }) {
   const addSnippet = (data, dropPos) => {
     if (recordHistory && getSnapshot) recordHistory(getSnapshot());
     // ---------- 1. PREPARE SNIPPET OBJECT ----------
@@ -120,6 +120,19 @@ export default function useSnippetHandlers({ tool, TOOL_MODES, pdfRef, workspace
       const data = JSON.parse(raw);
       // Calculate drop position in World Coordinates
       const dropPos = screenToWorld(e.clientX, e.clientY);
+
+      if (getPages) {
+          const pages = getPages();
+          const isInsidePage = pages.some(p => 
+              dropPos.x >= p.x && dropPos.x <= p.x + p.width &&
+              dropPos.y >= p.y && dropPos.y <= p.y + p.height
+          );
+          if (!isInsidePage) {
+              if (showToast) showToast("Snippets must be dropped inside a page.", "warning");
+              return;
+          }
+      }
+
       addSnippet(data, dropPos);
     } catch (err) {
       console.warn("Invalid drop data:", err);

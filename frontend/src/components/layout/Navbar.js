@@ -149,6 +149,7 @@ export default function Navbar() {
         searchMatches,
         currentMatchIndex, setCurrentMatchIndex,
         tool, setTool,
+        pdfPanelWidth, setPdfPanelWidth,
         TOOL_MODES,
         savingWorkspace, savingPdf,
         autosaveInterval, setAutosaveInterval,
@@ -180,6 +181,17 @@ export default function Navbar() {
 
     const onNextMatch = () => setCurrentMatchIndex(prev => (searchMatches.length ? (prev + 1) % searchMatches.length : -1));
     const onPrevMatch = () => setCurrentMatchIndex(prev => (searchMatches.length ? (prev - 1 + searchMatches.length) % searchMatches.length : -1));
+
+    React.useEffect(() => {
+        const handleOutsideClick = (e) => {
+            if (!e.target.closest('.navbar-center')) {
+                setShowPenColors(false);
+                setShowHighlighterColors(false);
+            }
+        };
+        window.addEventListener('pointerdown', handleOutsideClick);
+        return () => window.removeEventListener('pointerdown', handleOutsideClick);
+    }, [setShowPenColors, setShowHighlighterColors]);
 
     return (
         <>
@@ -378,7 +390,7 @@ export default function Navbar() {
                                 {/* Colors row */}
                                 <div style={{ display: 'flex', gap: 6 }}>
                                     {['#000000', '#ff3b30', '#007aff', '#34c759', '#ffcc00', '#ff9500', '#af52de', '#5856d6', '#8e8e93', '#000080'].map(color => (
-                                        <div key={color} onClick={() => { setPdfDrawingColor(color); }} style={{
+                                        <div key={color} onClick={() => { setPdfDrawingColor(color); setShowPenColors(false); }} style={{
                                             width: 18, height: 18, borderRadius: '50%', backgroundColor: color,
                                             cursor: 'pointer',
                                             border: pdfDrawingColor === color ? '2px solid #333' : '1.5px solid #ddd',
@@ -391,7 +403,7 @@ export default function Navbar() {
                                 {/* Thickness row */}
                                 <div style={{ display: 'flex', gap: 10, alignItems: 'center', justifyContent: 'center', paddingTop: 2, borderTop: '1px solid #f0f0f0' }}>
                                     {[{ size: 2, label: 'S' }, { size: 4, label: 'M' }, { size: 8, label: 'L' }, { size: 14, label: 'XL' }].map(({ size, label }) => (
-                                        <div key={size} onClick={() => setPenSize(size)} title={`Size ${label}`} style={{
+                                        <div key={size} onClick={() => { setPenSize(size); setShowPenColors(false); }} title={`Size ${label}`} style={{
                                             width: 28, height: 28, borderRadius: 6, cursor: 'pointer',
                                             display: 'flex', alignItems: 'center', justifyContent: 'center',
                                             background: penSize === size ? '#e8f0fe' : 'transparent',

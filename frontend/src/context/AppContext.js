@@ -23,7 +23,7 @@ import { PDFProvider, usePDF } from './PDFContext';
 import useLocalStorageSync from '../hooks/useLocalStorageSync';
 import useWorkspaceLoader from '../services/useWorkspaceLoader';
 import useWorkspaceSaver from '../services/useWorkspaceSaver';
-import api from '../api/api';
+import api, { getPdfProxyUrl } from '../api/api';
 import { getCurrentTimestampName } from '../utils/defaultNames';
 
 // ── Two exported contexts ─────────────────────────────────────────────────────
@@ -172,11 +172,23 @@ function AppInner({ children }) {
         workspace.editableBoxes, workspace.lines, pdf.pdfLines
     );
 
-    // Load bookmarks when pdfId changes
+    // Load bookmarks for ALL open PDF tabs so the sidebar can show cross-PDF bookmarks
     useEffect(() => {
-        if (!pdfId) return;
-        api.listBookmarks(pdfId).then(res => setBookmarks(res.data)).catch(() => {});
-    }, [pdfId, setBookmarks]);
+        if (!pdfTabs.length) return;
+        Promise.all(
+            pdfTabs.map(tab =>
+                api.listBookmarks(tab.pdfId)
+                    .then(res => res.data.map(bm => ({ ...bm, pdfName: tab.name, tabId: tab.tabId })))
+                    .catch(() => [])
+            )
+        ).then(results => {
+            const merged = results.flat().sort((a, b) => {
+                if (a.pdfName !== b.pdfName) return a.pdfName.localeCompare(b.pdfName);
+                return a.page_num - b.page_num;
+            });
+            setBookmarks(merged);
+        });
+    }, [pdfTabs, setBookmarks]);
 
     const activatePdfTab = useCallback((tab) => {
         if (!tab) return;
@@ -197,7 +209,7 @@ function AppInner({ children }) {
             return cache.get(normalized);
         }
 
-        const response = await fetch(normalized, {
+        const response = await fetch(getPdfProxyUrl(normalized), {
             method: "GET",
             cache: "no-store",
         });
@@ -323,19 +335,21 @@ function AppInner({ children }) {
         const label = name || `Page ${pageNum}`;
         try {
             const res = await api.createBookmark(pdfId, pageNum, label);
+            const activeTab = pdfTabs.find(t => t.pdfId === pdfId);
+            const enriched = { ...res.data, pdfName: activeTab?.name || "", tabId: activeTab?.tabId };
             setBookmarks(prev => {
-                const existingIndex = prev.findIndex(b => b.id === res.data.id || b.page_num === res.data.page_num);
-                if (existingIndex === -1) return [...prev, res.data].sort((a, b) => a.page_num - b.page_num);
+                const existingIndex = prev.findIndex(b => b.id === enriched.id || (b.pdf_id === enriched.pdf_id && b.page_num === enriched.page_num));
+                if (existingIndex === -1) return [...prev, enriched].sort((a, b) => (a.pdfName || "").localeCompare(b.pdfName || "") || a.page_num - b.page_num);
                 const next = [...prev];
-                next[existingIndex] = res.data;
-                return next.sort((a, b) => a.page_num - b.page_num);
+                next[existingIndex] = enriched;
+                return next;
             });
-            return res.data;
+            return enriched;
         } catch (err) {
             console.error("Bookmark create error:", err);
             throw err;
         }
-    }, [pdfId, setBookmarks]);
+    }, [pdfId, pdfTabs, setBookmarks]);
 
     const handleDeleteBookmark = useCallback(async (bookmarkId) => {
         try {

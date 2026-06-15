@@ -1,6 +1,8 @@
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import api from "../api/api";
 
+const AUTOSAVE_DEBOUNCE_MS = 3000;
+
 const STORAGE_KEY_PREFIX = "documentation-pages-v1";
 const LEGACY_DOCUMENT_TITLE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})(?: \d{2}:\d{2})?$/;
 
@@ -105,6 +107,9 @@ export default function useDocumentationPages(workspaceId) {
     const [documents, setDocuments] = useState(initFromLocal.documents);
     const [activeDocumentId, setActiveDocumentId] = useState(initFromLocal.activeDocumentId);
     const [loaded, setLoaded] = useState(false);
+    // 'idle' | 'pending' | 'saving' | 'saved'
+    const [saveStatus, setSaveStatus] = useState("idle");
+    const saveTimerRef = useRef(null);
 
     const isSyncingFromApi = useRef(false);
 
@@ -237,16 +242,29 @@ export default function useDocumentationPages(workspaceId) {
     }, [activeDocumentId, workspaceId]);
 
     const updateDocumentContent = useCallback((documentId, content) => {
-        setDocuments((prev) => {
-            const doc = prev.find((d) => d.id === documentId);
-            if (workspaceId && doc) {
-                // upsertDocPage handles 404 by auto-creating the doc first
-                upsertDocPage(workspaceId, { ...doc, content }, { content });
-            }
-            return prev.map((d) =>
-                d.id === documentId ? { ...d, content, updatedAt: Date.now() } : d
-            );
-        });
+        // Update local state immediately
+        setDocuments((prev) =>
+            prev.map((d) => d.id === documentId ? { ...d, content, updatedAt: Date.now() } : d)
+        );
+
+        if (!workspaceId) return;
+
+        // Show "pending" indicator, then debounce the API call by 3 seconds
+        setSaveStatus("pending");
+        if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = setTimeout(async () => {
+            setSaveStatus("saving");
+            setDocuments((prev) => {
+                const doc = prev.find((d) => d.id === documentId);
+                if (doc) {
+                    upsertDocPage(workspaceId, { ...doc, content }, { content }).then(() => {
+                        setSaveStatus("saved");
+                        setTimeout(() => setSaveStatus("idle"), 2000);
+                    }).catch(() => setSaveStatus("idle"));
+                }
+                return prev;
+            });
+        }, AUTOSAVE_DEBOUNCE_MS);
     }, [workspaceId]);
 
     return {
@@ -254,6 +272,7 @@ export default function useDocumentationPages(workspaceId) {
         activeDocument,
         activeDocumentId: activeDocument?.id || activeDocumentId,
         loaded,
+        saveStatus,
         createDocumentPage,
         selectDocument,
         renameDocument,

@@ -1,5 +1,33 @@
 import { useEffect, useRef } from "react";
+import { getStroke } from "perfect-freehand";
 import api from "../api/api";
+
+function getSvgPathFromStroke(stroke) {
+    if (!stroke.length) return '';
+    const d = stroke.reduce(
+        (acc, [x0, y0], i, arr) => {
+            const [x1, y1] = arr[(i + 1) % arr.length];
+            acc.push(x0, y0, (x0 + x1) / 2, (y0 + y1) / 2);
+            return acc;
+        },
+        ['M', ...stroke[0], 'Q']
+    );
+    d.push('Z');
+    return d.join(' ');
+}
+
+const STROKE_OPTIONS = { thinning: 0.6, smoothing: 0.5, streamline: 0.5, simulatePressure: true };
+
+function normalizePdfLine(l) {
+    const pts = l.points || [];
+    const width = l.stroke_width || l.width || 3;
+    const isNewFormat = pts.length > 0 && Array.isArray(pts[0]);
+    if (isNewFormat) {
+        const svgPath = getSvgPathFromStroke(getStroke(pts, { ...STROKE_OPTIONS, size: width, simulatePressure: false, last: true }));
+        return { id: l.id, pageNum: l.page_num, tool: "pen", color: l.color, width, inputPts: pts, svgPath };
+    }
+    return { id: l.id, pageNum: l.page_num, tool: "pen", color: l.color, width, points: pts };
+}
 const useWorkspaceLoader = (context) => {
     const {
         pdfId,
@@ -38,10 +66,11 @@ const useWorkspaceLoader = (context) => {
             setLoading(true);
             let appliedPendingSummary = false;
             try {
-                const [data, groupsRes, crossLinksRes] = await Promise.all([
+                const [data, groupsRes, crossLinksRes, pagesRes] = await Promise.all([
                     api.loadWorkspaceDataByWorkspace(pdfId, activeWorkspace.id),
                     api.loadWorkspaceGroups(activeWorkspace.id),
                     api.loadCrossPdfLinks(activeWorkspace.id),
+                    api.loadWorkspacePages(activeWorkspace.id),
                 ]);
                 // loadWorkspaceDataByWorkspace returns empty pdf annotation arrays if pdfId is null
                 const {
@@ -118,11 +147,17 @@ const useWorkspaceLoader = (context) => {
                 setSnippets(snippetsWithFiles);
                 // editableBoxes already set above (with pending summary applied if needed)
 
-                // Normalize lines: backend uses stroke_width, frontend uses width
-                const normalizedLines = (lineData ?? []).map(l => ({
-                    ...l,
-                    width: l.stroke_width ?? l.width ?? 2
-                }));
+                // Normalize lines: reconstruct svgPath for new-format strokes
+                const normalizedLines = (lineData ?? []).map(l => {
+                    const pts = l.points || [];
+                    const width = l.stroke_width ?? l.width ?? 3;
+                    const isNewFormat = pts.length > 0 && Array.isArray(pts[0]);
+                    if (isNewFormat) {
+                        const svgPath = getSvgPathFromStroke(getStroke(pts, { ...STROKE_OPTIONS, size: width, simulatePressure: false, last: true }));
+                        return { ...l, width, inputPts: pts, svgPath };
+                    }
+                    return { ...l, width };
+                });
                 setLines(normalizedLines);
                 const normalizedConns = (connData ?? []).map(c => ({
                     ...c,
@@ -136,12 +171,25 @@ const useWorkspaceLoader = (context) => {
                     const raw = Array.isArray(crossLinksRes.data) ? crossLinksRes.data : [];
                     const seen = new Set();
                     const deduped = raw.filter(l => {
-                        const key = `${l.from?.pdfId}-${l.from?.pageNum}-${Math.round((l.from?.xPct||0)*100)}-${l.from?.snippetId||''}`;
+                        const key = `${l.from?.pdfId}-${l.from?.pageNum}-${Math.round((l.from?.xPct || 0) * 100)}-${l.from?.snippetId || ''}`;
                         if (seen.has(key)) return false;
                         seen.add(key);
                         return true;
                     });
                     setCrossPdfLinks(deduped);
+                }
+
+                // Load pages and persist to localStorage for InfiniteCanvas
+                if (pagesRes?.data && Array.isArray(pagesRes.data) && pagesRes.data.length > 0) {
+                    localStorage.setItem('airpdf_workspace_pages', JSON.stringify(pagesRes.data));
+                    // Force a storage event to alert InfiniteCanvas if it's listening
+                    window.dispatchEvent(new Event('storage'));
+                } else {
+                    // Fallback to default if no pages returned
+                    const PAGE_COLORS = ['#e8f3ff', '#eef9ec'];
+                    const defaultPage = [{ id: 'ws-1', x: 0, y: 0, width: 1100, height: 1500, color: PAGE_COLORS[0] }];
+                    localStorage.setItem('airpdf_workspace_pages', JSON.stringify(defaultPage));
+                    window.dispatchEvent(new Event('storage'));
                 }
 
                 // Load groups
@@ -182,15 +230,7 @@ const useWorkspaceLoader = (context) => {
                 }
 
                 if (pdfLineData !== undefined) {
-                    const transformedPdfLines = pdfLineData.map(l => ({
-                        id: l.id,
-                        pageNum: l.page_num,
-                        points: l.points,
-                        color: l.color,
-                        width: l.stroke_width || l.width || 2,
-                        tool: "pen"
-                    }));
-                    setPdfLines(transformedPdfLines);
+                    setPdfLines(pdfLineData.map(normalizePdfLine));
                 }
 
                 if (brushData !== undefined) {
@@ -255,9 +295,7 @@ const useWorkspaceLoader = (context) => {
             setPdfAnnotations(textData.map(a => ({
                 id: a.id, pageNum: a.page_num, text: a.text, xPct: a.x_pct, yPct: a.y_pct, isEditing: false
             })));
-            setPdfLines(pdfLineData.map(l => ({
-                id: l.id, pageNum: l.page_num, points: l.points, color: l.color, width: l.stroke_width || l.width || 2, tool: "pen"
-            })));
+            setPdfLines(pdfLineData.map(normalizePdfLine));
             setBrushHighlights(brushData.map(h => ({
                 id: `brush-${h.id}`, serverId: h.id, pageNum: h.page_num, path: h.path_data, color: h.color, brushWidth: h.brush_width
             })));

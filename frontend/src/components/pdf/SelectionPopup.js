@@ -24,6 +24,21 @@ const SelectionPopup = ({ position, onSelectMore, onLink, onClose, showSelectMor
     }, []);
 
     React.useEffect(() => {
+        const handleClickOutside = (e) => {
+            if (!e.target.closest('.selection-popup')) {
+                onClose();
+            }
+        };
+        const timer = setTimeout(() => {
+            window.addEventListener('pointerdown', handleClickOutside);
+        }, 100);
+        return () => {
+            clearTimeout(timer);
+            window.removeEventListener('pointerdown', handleClickOutside);
+        };
+    }, [onClose]);
+
+    React.useEffect(() => {
         setBookmarked(false);
         setBookmarkSaving(false);
     }, [position.x, position.y]);
@@ -68,13 +83,13 @@ const SelectionPopup = ({ position, onSelectMore, onLink, onClose, showSelectMor
                 alignItems: "center",
                 flexWrap: "nowrap",
                 gap: "4px",
-                padding: "4px 8px",
-                background: "rgba(28,28,32,0.95)",
-                backdropFilter: "blur(16px) saturate(180%)",
-                WebkitBackdropFilter: "blur(16px) saturate(180%)",
-                borderRadius: "14px",
-                border: "1px solid rgba(255,255,255,0.1)",
-                boxShadow: "0 4px 16px rgba(0,0,0,0.28), 0 1px 4px rgba(0,0,0,0.18)",
+                padding: "6px 10px",
+                background: "rgba(255,255,255,0.92)",
+                backdropFilter: "blur(24px) saturate(200%)",
+                WebkitBackdropFilter: "blur(24px) saturate(200%)",
+                borderRadius: "16px",
+                border: "1px solid rgba(0,0,0,0.06)",
+                boxShadow: "0 10px 40px rgba(0,0,0,0.12), 0 2px 10px rgba(0,0,0,0.05)",
                 zIndex: 1000,
                 position: "absolute",
                 transform: "translateX(-50%)",
@@ -85,8 +100,8 @@ const SelectionPopup = ({ position, onSelectMore, onLink, onClose, showSelectMor
         >
             {/* Highlight color dots */}
             <div style={{
-                display: "flex", gap: "4px", paddingRight: "6px",
-                borderRight: "1px solid rgba(255,255,255,0.12)", alignItems: "center",
+                display: "flex", gap: "6px", paddingRight: "8px",
+                borderRight: "1px solid rgba(0,0,0,0.08)", alignItems: "center",
                 flexShrink: 0,
             }}>
                 {colors.map((color) => (
@@ -102,8 +117,8 @@ const SelectionPopup = ({ position, onSelectMore, onLink, onClose, showSelectMor
                             borderRadius: "50%",
                             backgroundColor: color.hex,
                             cursor: "pointer",
-                            border: "1.5px solid rgba(255,255,255,0.25)",
-                            boxShadow: hoveredColor === color.hex ? `0 0 0 2px ${color.hex}60` : "none",
+                            border: "1.5px solid rgba(0,0,0,0.1)",
+                            boxShadow: hoveredColor === color.hex ? `0 0 0 2.5px ${color.hex}60` : "0 1px 3px rgba(0,0,0,0.1)",
                             transition: "all 0.12s ease",
                         }}
                     />
@@ -119,8 +134,9 @@ const SelectionPopup = ({ position, onSelectMore, onLink, onClose, showSelectMor
                         onMouseLeave={() => setHoveredBtn(null)}
                         style={{
                             ...btnBase,
-                            color: "rgba(255,255,255,0.8)",
-                            backgroundColor: hoveredBtn === "more" ? "rgba(255,255,255,0.1)" : "transparent",
+                            color: "#444",
+                            backgroundColor: hoveredBtn === "more" ? "rgba(0,0,0,0.06)" : "transparent",
+                            fontWeight: "600",
                         }}
                     >
                         <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
@@ -139,36 +155,21 @@ const SelectionPopup = ({ position, onSelectMore, onLink, onClose, showSelectMor
                     disabled={bookmarkSaving}
                     style={{
                         ...btnBase,
-                        color: bookmarked ? "#FFD60A" : "rgba(255,255,255,0.8)",
-                        backgroundColor: hoveredBtn === "bm" ? "rgba(255,214,10,0.15)" : "transparent",
+                        color: bookmarked ? "#d97706" : "#444",
+                        backgroundColor: hoveredBtn === "bm" ? "rgba(245,158,11,0.15)" : "transparent",
+                        fontWeight: "600",
                         opacity: bookmarkSaving ? 0.65 : 1,
                     }}
                 >
-                    <svg width="10" height="10" viewBox="0 0 24 24"
-                        fill={bookmarked ? "#FFD60A" : "none"}
-                        stroke={bookmarked ? "#FFD60A" : "currentColor"}
+                    <svg width="12" height="12" viewBox="0 0 24 24"
+                        fill={bookmarked ? "#d97706" : "none"}
+                        stroke={bookmarked ? "#d97706" : "currentColor"}
                         strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z" />
                     </svg>
                     {bookmarked ? "Saved!" : (bookmarkSaving ? "Saving…" : "Bookmark")}
                 </button>
 
-                {/* Link to Box */}
-                <button
-                    onClick={onLink}
-                    onMouseEnter={() => setHoveredBtn("link")}
-                    onMouseLeave={() => setHoveredBtn(null)}
-                    style={{
-                        ...btnBase,
-                        background: hoveredBtn === "link" ? "#0071e3" : "#007aff",
-                        color: "white",
-                        fontWeight: "600",
-                        padding: "3px 9px",
-                        boxShadow: hoveredBtn === "link" ? "0 2px 8px rgba(0,122,255,0.4)" : "none",
-                    }}
-                >
-                    Link to Box
-                </button>
 
                 {/* Connect PDF */}
                 {onConnectPdf && (
@@ -227,11 +228,12 @@ const SelectionPopup = ({ position, onSelectMore, onLink, onClose, showSelectMor
                             ...btnBase,
                             background: hasPendingCrossLink
                                 ? (hoveredBtn === "xpdf" ? "#059669" : "#10b981")
-                                : (hoveredBtn === "xpdf" ? "rgba(255,255,255,0.15)" : "transparent"),
-                            color: hasPendingCrossLink ? "white" : "rgba(255,255,255,0.85)",
-                            fontWeight: hasPendingCrossLink ? "700" : "500",
-                            border: hasPendingCrossLink ? "none" : "1px solid rgba(255,255,255,0.15)",
-                            padding: "3px 8px",
+                                : (hoveredBtn === "xpdf" ? "rgba(0,0,0,0.06)" : "transparent"),
+                            color: hasPendingCrossLink ? "white" : "#444",
+                            fontWeight: hasPendingCrossLink ? "700" : "600",
+                            border: hasPendingCrossLink ? "none" : "1px solid rgba(0,0,0,0.1)",
+                            padding: "4px 10px",
+                            borderRadius: "12px",
                             boxShadow: hasPendingCrossLink && hoveredBtn === "xpdf" ? "0 2px 8px rgba(16,185,129,0.4)" : "none",
                             animation: hasPendingCrossLink ? "pulseGreen 1.4s ease-in-out infinite" : "none",
                             cursor: hasPendingCrossLink ? "pointer" : "grab",
@@ -248,12 +250,12 @@ const SelectionPopup = ({ position, onSelectMore, onLink, onClose, showSelectMor
                 onMouseEnter={() => setHoveredBtn("x")}
                 onMouseLeave={() => setHoveredBtn(null)}
                 style={{
-                    background: hoveredBtn === "x" ? "rgba(255,255,255,0.1)" : "transparent",
-                    color: "rgba(255,255,255,0.4)",
-                    border: "none", width: "16px", height: "16px", borderRadius: "50%",
+                    background: hoveredBtn === "x" ? "rgba(0,0,0,0.06)" : "transparent",
+                    color: "rgba(0,0,0,0.4)",
+                    border: "none", width: "18px", height: "18px", borderRadius: "50%",
                     cursor: "pointer", display: "flex", alignItems: "center",
-                    justifyContent: "center", fontSize: "10px", transition: "all 0.15s ease",
-                    flexShrink: 0, padding: 0,
+                    justifyContent: "center", fontSize: "11px", transition: "all 0.15s ease",
+                    flexShrink: 0, padding: 0, fontWeight: "bold"
                 }}
             >✕</button>
 

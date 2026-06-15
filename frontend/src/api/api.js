@@ -1,6 +1,5 @@
 import axios from "axios";
 
-    // export const BASE_URL = "https://beta.mphc.gov.in:8888/fast"; // Update this to your backend URL
 export const BASE_URL = process.env.REACT_APP_API_URL || "http://localhost:8000";
 const SUMMARY_TIMEOUT_MS = Number(process.env.REACT_APP_SUMMARY_TIMEOUT_MS || 300000);
 
@@ -186,6 +185,10 @@ api.saveWorkspaceData = saveWorkspaceData;
 // 🟩 LOAD workspace groups
 const loadWorkspaceGroups = (workspaceId) => api.get(`/workspace/groups/${workspaceId}`);
 api.loadWorkspaceGroups = loadWorkspaceGroups;
+
+// 🟩 LOAD workspace pages
+const loadWorkspacePages = (workspaceId) => api.get(`/workspace/pages/${workspaceId}`);
+api.loadWorkspacePages = loadWorkspacePages;
 
 // 🟩 LOAD cross-PDF links
 const loadCrossPdfLinks = (workspaceId) => api.get(`/workspace/cross_pdf_links/${workspaceId}`);

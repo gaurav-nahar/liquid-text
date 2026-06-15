@@ -1,7 +1,7 @@
 //this file is used for create a editable box in workspace
 import { useRef, useState } from "react";
 
-export default function useBoxHandlers({ tool, TOOL_MODES, setEditableBoxes, screenToWorld, recordHistory, getSnapshot }) {
+export default function useBoxHandlers({ tool, TOOL_MODES, setEditableBoxes, screenToWorld, getPages, recordHistory, getSnapshot }) {
   const dragStart = useRef(null);
   const isDragging = useRef(false);
   const [drawingBox, setDrawingBox] = useState(null);
@@ -27,6 +27,15 @@ export default function useBoxHandlers({ tool, TOOL_MODES, setEditableBoxes, scr
 
     // Convert screen coordinates to world coordinates
     const worldPos = screenToWorld(clientX, clientY);
+
+    if (getPages) {
+        const pages = getPages();
+        const isInsidePage = pages.some(p => 
+            worldPos.x >= p.x && worldPos.x <= p.x + p.width &&
+            worldPos.y >= p.y && worldPos.y <= p.y + p.height
+        );
+        if (!isInsidePage) return;
+    }
 
     dragStart.current = { x: worldPos.x, y: worldPos.y };
     isDragging.current = true;

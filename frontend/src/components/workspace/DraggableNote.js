@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect, memo } from "react";
+import React, { useRef, useState, useEffect, memo, useMemo } from "react";
 import { motion } from "framer-motion";
 import { useCanvasStable } from "./InfiniteCanvas";
 import ItemContextMenu from "./ItemContextMenu";
@@ -29,7 +29,15 @@ const DraggableNote = memo(({
   const { getScale } = useCanvasStable();
 
   const [contextMenu, setContextMenu] = useState(null);
+  const [dragActive, setDragActive] = useState(false);
 
+  // 🎲 Generate consistent pseudorandom rotation between -1.5 and 1.5 degrees
+  const rotation = useMemo(() => {
+    let hash = 0;
+    const str = String(snippet.id);
+    for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
+    return (Math.abs(hash) % 30) / 10 - 1.5;
+  }, [snippet.id]);
   // 🎯 DRAG LOGIC — unified pointer handler (mouse + touch + pen/stylus)
   const handlePointerDown = (e) => {
     if (disableDrag) { e.stopPropagation(); return; }
@@ -39,6 +47,7 @@ const DraggableNote = memo(({
 
     onDrag?.(null, null, "drag-start");
     pos.current = { x: e.clientX, y: e.clientY };
+    setDragActive(true);
 
     // Capture pointer → receive all move/up events even during fast pen strokes
     noteRef.current.setPointerCapture(e.pointerId);
@@ -52,6 +61,7 @@ const DraggableNote = memo(({
       onDrag?.(dx, dy);
     };
     const onUp = () => {
+      setDragActive(false);
       el.removeEventListener("pointermove", onMove);
       el.removeEventListener("pointerup", onUp);
       el.removeEventListener("pointercancel", onUp);
@@ -139,17 +149,9 @@ const DraggableNote = memo(({
       let newHeight = rawHeight;
 
       if (isImageSnippet) {
-        const aspectRatio = Math.max(0.01, startWidth / Math.max(startHeight, 1));
-        const widthDrivenHeight = newWidth / aspectRatio;
-        const heightDrivenWidth = newHeight * aspectRatio;
-        const widthChange = Math.abs(newWidth - startWidth / scale);
-        const heightChange = Math.abs(newHeight - startHeight / scale);
-
-        if (widthChange >= heightChange) {
-          newHeight = Math.max(50, widthDrivenHeight);
-        } else {
-          newWidth = Math.max(50, heightDrivenWidth);
-        }
+        // For images, we only set the width and let the browser scale the height automatically
+        // to perfectly wrap the image without any empty white space.
+        newHeight = "auto";
       }
 
       onDrag?.(null, null, "resize", { id: snippet.id, width: newWidth, height: newHeight });
@@ -241,19 +243,26 @@ const DraggableNote = memo(({
             setTimeout(() => editorRef.current?.focus(), 50);
           }
         }}
-        initial={{ opacity: 0, scale: 0.85 }}
-        animate={{ opacity: 1, scale: 1 }}
-        transition={{ duration: 0.18, ease: "easeOut" }}
+        initial={{ opacity: 0, scale: 0.85, rotate: rotation }}
+        animate={{ 
+          opacity: 1, 
+          scale: dragActive ? 1.05 : 1, 
+          rotate: dragActive ? 0 : rotation,
+          boxShadow: dragActive 
+            ? "0 16px 32px rgba(0,0,0,0.15), 0 4px 8px rgba(0,0,0,0.06)" 
+            : (selected ? "0 8px 16px rgba(0,0,0,0.1)" : "0 2px 6px rgba(0,0,0,0.06)")
+        }}
+        exit={{ opacity: 0, scale: 1.25, filter: "blur(12px) brightness(1.5)", rotate: rotation + 5 }}
+        transition={{ duration: 0.2, ease: "easeOut" }}
         style={{
           position: "absolute",
           left: snippet.x,
           top: snippet.y,
-          background: multiSelected ? "#fff3cd" : (snippet.bg_color || (selected ? "#d0e7ff" : "white")),
-          borderRadius: "10px",
+          background: multiSelected ? "#fff3cd" : (snippet.bg_color || (selected ? "#f8fafc" : "white")),
+          borderRadius: "8px",
           padding: isImageSnippet ? 0 : "0.8rem",
           width: snippet.width || 180,
-          height: snippet.height || "auto",
-          boxShadow: selected ? "0 4px 12px rgba(0,0,0,0.2)" : "0 2px 6px rgba(0,0,0,0.15)",
+          height: isImageSnippet ? "auto" : (snippet.height || "auto"),
           borderLeft: multiSelected
             ? "4px solid #fd7e14"
             : sourcePdfColor
@@ -267,7 +276,7 @@ const DraggableNote = memo(({
           touchAction: "none",
           paddingBottom: isImageSnippet ? 0 : "20px", // Extra space for handle
           paddingRight: isImageSnippet ? 0 : "15px",  // Extra space for handle
-          transition: "box-shadow 0.2s, background 0.2s",
+          transition: "background 0.2s, border 0.2s",
           outline: multiSelected ? "2px solid #fd7e14" : "none",
           outlineOffset: "1px",
           minHeight: "40px",
@@ -333,8 +342,8 @@ const DraggableNote = memo(({
             alt="snippet"
             style={{
               width: "100%",
-              height: "100%",
-              objectFit: "contain",
+              height: "auto",
+              display: "block",
               pointerEvents: "none",
             }}
           />

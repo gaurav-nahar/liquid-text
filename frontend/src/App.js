@@ -205,7 +205,7 @@ export default function App() {
         workspaces,
         setActiveWorkspace,
         selectedPDF,
-        pdfPanelWidth,
+        pdfPanelWidth, setPdfPanelWidth,
         isResizing,
         pdfRef, pdf2Ref,
         pdfId,
@@ -249,7 +249,14 @@ export default function App() {
         renameDocument,
         deleteDocument,
         updateDocumentContent,
+        saveStatus,
     } = useDocumentationPages(activeWorkspace?.id ?? null);
+
+    // Update browser tab title to active PDF name
+    useEffect(() => {
+        const activeTab = pdfTabs.find(t => t.tabId === activeTabId);
+        document.title = activeTab?.name ? activeTab.name : "PDF Reader";
+    }, [pdfTabs, activeTabId]);
 
     const [showOpenModal, setShowOpenModal] = useState(false);
     const [pdf2PanelWidth, setPdf2PanelWidth] = useState(35); // right panel width %
@@ -319,7 +326,7 @@ export default function App() {
                         </div>
                     </div>
                 )}
-                <Navbar />
+                <Navbar saveStatus={saveStatus} />
 
                 <div className="context-bar">
                     <div
@@ -442,7 +449,7 @@ export default function App() {
 
                 <div className="main-content" style={{ cursor: isResizing || isResizing2 ? 'col-resize' : 'default' }}>
                     {/* PDF 1 — always left */}
-                    <div className="pdf-view-container" style={{ width: `${pdfPanelWidth}%`, height: '100%', flex: 'none', position: 'relative' }}>
+                    <div className={`pdf-view-container ${isResizing ? 'is-resizing' : ''}`} style={{ width: pdfPanelWidth === 100 ? 'calc(100% - 6px)' : (pdfPanelWidth === 0 ? '0px' : `${pdfPanelWidth}%`), height: '100%', flex: 'none', position: 'relative' }}>
                         <PDFViewer key={activeTabId} ref={pdfRef} fileUrl={selectedPDF} sourcePdfId={pdfId} />
                     </div>
 
@@ -451,7 +458,20 @@ export default function App() {
                         onMouseDown={handleMouseDownResizer}
                         onTouchStart={handleTouchStartResizer}
                     >
-                        <div className="resizer-handle"><span>⋮</span></div>
+                        <div
+                            className="resizer-handle"
+                            style={{
+                                pointerEvents: 'auto', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                height: 48, width: 24, cursor: 'col-resize',
+                                transform: pdfPanelWidth === 100 ? 'translateX(-9px)' : (pdfPanelWidth === 0 ? 'translateX(9px)' : 'none'),
+                                transition: 'transform 0.2s ease',
+                                borderRadius: pdfPanelWidth === 100 ? '6px 0 0 6px' : (pdfPanelWidth === 0 ? '0 6px 6px 0' : '6px')
+                            }}
+                            onDoubleClick={(e) => { e.stopPropagation(); setPdfPanelWidth(50); }}
+                            title="Drag to resize · Double-click to reset"
+                        >
+                            <div style={{ lineHeight: 1, fontSize: 14 }}>⋮</div>
+                        </div>
                     </div>
 
                     {/* PDF 2 — middle when open, placed before workspace */}
@@ -528,10 +548,42 @@ export default function App() {
                                 onRenameDocument={renameDocument}
                                 onDeleteDocument={deleteDocument}
                                 onUpdateDocumentContent={updateDocumentContent}
+                                saveStatus={saveStatus}
                             />
                         ) : (
                             <Workspace />
                         )}
+                    </div>
+
+                    {/* Global Layout Toggle - Bottom Right */}
+                    <div style={{
+                        position: 'absolute',
+                        bottom: 20,
+                        right: 20,
+                        zIndex: 9999,
+                        display: 'flex',
+                        background: 'rgba(255, 255, 255, 0.65)',
+                        backdropFilter: 'blur(16px) saturate(180%)',
+                        border: '1px solid rgba(0,0,0,0.1)',
+                        borderRadius: 10,
+                        padding: 4,
+                        boxShadow: '0 4px 16px rgba(0,0,0,0.12), 0 1px 4px rgba(0,0,0,0.06)'
+                    }}>
+                        <button
+                            style={{ border: 'none', background: pdfPanelWidth > 95 ? '#fff' : 'transparent', borderRadius: 8, padding: '6px 12px', fontSize: 13, fontWeight: 700, color: pdfPanelWidth > 95 ? '#1a73e8' : '#5f6368', cursor: 'pointer', boxShadow: pdfPanelWidth > 95 ? '0 2px 6px rgba(0,0,0,0.1)' : 'none', transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)' }}
+                            onClick={() => setPdfPanelWidth(100)}
+                            title="PDF Only"
+                        >PDF</button>
+                        <button
+                            style={{ border: 'none', background: (pdfPanelWidth > 5 && pdfPanelWidth < 95) ? '#fff' : 'transparent', borderRadius: 8, padding: '6px 12px', fontSize: 13, fontWeight: 700, color: (pdfPanelWidth > 5 && pdfPanelWidth < 95) ? '#1a73e8' : '#5f6368', cursor: 'pointer', boxShadow: (pdfPanelWidth > 5 && pdfPanelWidth < 95) ? '0 2px 6px rgba(0,0,0,0.1)' : 'none', transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)' }}
+                            onClick={() => setPdfPanelWidth(50)}
+                            title="Split View"
+                        >Split</button>
+                        <button
+                            style={{ border: 'none', background: pdfPanelWidth < 5 ? '#fff' : 'transparent', borderRadius: 8, padding: '6px 12px', fontSize: 13, fontWeight: 700, color: pdfPanelWidth < 5 ? '#1a73e8' : '#5f6368', cursor: 'pointer', boxShadow: pdfPanelWidth < 5 ? '0 2px 6px rgba(0,0,0,0.1)' : 'none', transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)' }}
+                            onClick={() => setPdfPanelWidth(0)}
+                            title="Workspace Only"
+                        >Notes</button>
                     </div>
                 </div>
             </>
