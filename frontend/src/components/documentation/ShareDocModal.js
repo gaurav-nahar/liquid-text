@@ -161,7 +161,7 @@ export default function ShareDocModal({ doc, onClose }) {
                 </div>
 
                 <div style={{ fontSize: 11, color: "#9ca3af", borderTop: "1px solid #f3f4f6", paddingTop: 10 }}>
-                    Shared judges can edit this document. Last save wins.
+                    
                 </div>
             </div>
         </div>
