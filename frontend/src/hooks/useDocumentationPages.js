@@ -66,6 +66,8 @@ const fromApi = (page) => ({
     content: page.content ?? null,
     sort_order: page.sort_order ?? 0,
     updatedAt: page.updated_at ? new Date(page.updated_at).getTime() : Date.now(),
+    isOwner: page.is_owner !== false,
+    sharedBy: page.shared_by ?? null,
 });
 
 // ------------------------------------------------------------------

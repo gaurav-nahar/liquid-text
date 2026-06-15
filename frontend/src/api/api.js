@@ -210,6 +210,16 @@ api.createDocPage = createDocPage;
 api.updateDocPage = updateDocPage;
 api.deleteDocPage = deleteDocPage;
 
+const shareDocPage = (docId, sharedWith, permission = "edit") =>
+    api.post(`/documentation/${docId}/share`, { shared_with: sharedWith, permission });
+const revokeDocShare = (docId, sharedWith) =>
+    api.delete(`/documentation/${docId}/share/${sharedWith}`);
+const listDocShares = (docId) =>
+    api.get(`/documentation/${docId}/shares`);
+api.shareDocPage = shareDocPage;
+api.revokeDocShare = revokeDocShare;
+api.listDocShares = listDocShares;
+
 // 🟩 SUMMARIZE PDF
 const summarizePdf = (text) => api.post("/pdfs/summarize", { text }, { timeout: SUMMARY_TIMEOUT_MS });
 const startPdfSummary = (text) => api.post("/pdfs/summarize?async_mode=true", { text }, { timeout: 15000 });

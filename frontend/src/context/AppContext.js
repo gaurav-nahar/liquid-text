@@ -423,6 +423,7 @@ function AppInner({ children }) {
         selectedPdf,
         workspaceRootPdf = null, // kept for backward compat with postMessage API, no longer used
         resetTabs = false,
+        silent = false, // if true, register tab but don't switch the viewer to it
     }) => {
         if (!selectedPdf?.url) return;
         if (openCasePdfBusyRef.current) return;
@@ -454,7 +455,7 @@ function AppInner({ children }) {
             // ── If same diary & same PDF already open — just switch to it ──────
             // This is the primary path after the first PDF load: no re-init needed.
             if (existingTab) {
-                activatePdfTab(existingTab);
+                if (!silent) activatePdfTab(existingTab);
                 openCasePdfBusyRef.current = false;
                 setLoading(false);
                 return;
@@ -477,7 +478,7 @@ function AppInner({ children }) {
             // Check again by pdfId (race condition: two rapid clicks for same PDF)
             const existingTabByPdfId = tabsRef.current.find((tab) => tab.pdfId === nextPdfId);
             if (existingTabByPdfId) {
-                activatePdfTab(existingTabByPdfId);
+                if (!silent) activatePdfTab(existingTabByPdfId);
                 openCasePdfBusyRef.current = false;
                 setLoading(false);
                 return;
@@ -538,7 +539,7 @@ function AppInner({ children }) {
                 })
                 .catch(e => console.error("Auto-registration failed:", e));
 
-            activatePdfTab(newTab);
+            if (!silent) activatePdfTab(newTab);
             setPdfTabs(prev => {
                 // Final dedup guard
                 const already = prev.find(
@@ -864,17 +865,22 @@ function AppInner({ children }) {
                         allToOpen.push({ url: pdfUrl, name: pdfName, is_active: true });
                     }
 
-                    // Open them all stable-ly
+                    // The PDF the user actually wants to see — from URL or the first saved one
+                    const targetUrl = pdfUrl || (allToOpen[0]?.url || allToOpen[0]?.pdf_url);
+
+                    // Register all PDFs silently (add tabs, no viewer switch)
                     for (const p of allToOpen) {
                         const resolvedUrl = p.url || p.pdf_url;
                         const resolvedName = p.name || p.pdf_name;
                         const resolvedId = p.id || p.pdf_id;
-                        
+
                         if (!resolvedUrl) continue;
 
+                        const isTarget = resolvedUrl === targetUrl;
                         await openCasePdf({
                             diaryNo, diaryYear, establishment,
-                            selectedPdf: { url: resolvedUrl, name: resolvedName, id: resolvedId, originalPath: resolvedUrl }
+                            selectedPdf: { url: resolvedUrl, name: resolvedName, id: resolvedId, originalPath: resolvedUrl },
+                            silent: !isTarget,
                         });
                     }
                 }

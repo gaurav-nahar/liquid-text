@@ -12,7 +12,9 @@ class DocumentationPage(Base):
     title = Column(String, nullable=False, default="Untitled")
     content = Column(Text, nullable=True)  # Lexical editor JSON state
     sort_order = Column(BigInteger, nullable=False, default=0)
+    updated_by = Column(String, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
     workspace = relationship("Workspace", back_populates="documentation_pages")
+    shares = relationship("DocumentShare", back_populates="page", cascade="all, delete-orphan")

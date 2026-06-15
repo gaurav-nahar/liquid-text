@@ -450,7 +450,7 @@ export default function App() {
                 <div className="main-content" style={{ cursor: isResizing || isResizing2 ? 'col-resize' : 'default' }}>
                     {/* PDF 1 — always left */}
                     <div className={`pdf-view-container ${isResizing ? 'is-resizing' : ''}`} style={{ width: pdfPanelWidth === 100 ? 'calc(100% - 6px)' : (pdfPanelWidth === 0 ? '0px' : `${pdfPanelWidth}%`), height: '100%', flex: 'none', position: 'relative' }}>
-                        <PDFViewer key={activeTabId} ref={pdfRef} fileUrl={selectedPDF} sourcePdfId={pdfId} />
+                        <PDFViewer ref={pdfRef} fileUrl={selectedPDF} sourcePdfId={pdfId} />
                     </div>
 
                     <div

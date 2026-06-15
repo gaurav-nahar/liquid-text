@@ -33,6 +33,7 @@ from src.models.workspace_group_model import WorkspaceGroup  # noqa: ensure tabl
 from src.models.workspace_pdf_model import WorkspacePdf  # noqa: ensure table is registered
 from src.routers.documentation_router import router as documentation_router
 from src.models.documentation_model import DocumentationPage  # noqa: ensure table is registered
+from src.models.document_share_model import DocumentShare  # noqa: ensure table is registered
 # NOTE: create_all disabled for production. Run migrations manually before deploying.
 # Base.metadata.create_all(bind=engine)
 

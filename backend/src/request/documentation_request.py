@@ -28,8 +28,28 @@ class DocPageOut(BaseModel):
     title: str
     content: Optional[str]
     sort_order: int
+    updated_by: Optional[str] = None
+    is_owner: Optional[bool] = True
+    shared_by: Optional[str] = None
     created_at: Optional[datetime]
     updated_at: Optional[datetime]
+
+    class Config:
+        orm_mode = True
+
+
+class DocShareCreate(BaseModel):
+    shared_with: str
+    permission: str = "edit"
+
+
+class DocShareOut(BaseModel):
+    id: int
+    doc_id: str
+    shared_by: str
+    shared_with: str
+    permission: str
+    created_at: Optional[datetime]
 
     class Config:
         orm_mode = True
