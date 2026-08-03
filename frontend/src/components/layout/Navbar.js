@@ -140,7 +140,50 @@ const icons = {
             <line x1="6.5" y1="17.5" x2="17.5" y2="6.5" strokeDasharray="3 2" />
         </svg>
     ),
+    menu: (
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="4" y1="7" x2="20" y2="7" />
+            <line x1="4" y1="12" x2="20" y2="12" />
+            <line x1="4" y1="17" x2="20" y2="17" />
+        </svg>
+    ),
+    zoomOut: (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="11" cy="11" r="7" /><line x1="20" y1="20" x2="16.65" y2="16.65" /><line x1="8" y1="11" x2="14" y2="11" />
+        </svg>
+    ),
 };
+
+/**
+ * One control, rendered either as a navbar icon button ("bar") or as a labelled row
+ * inside the overflow menu ("menu"). Both copies render from a single call site so
+ * they can never drift apart.
+ */
+function ToolItem({ variant, icon, label, title, active, disabled, onClick, badge, style }) {
+    if (variant === "menu") {
+        return (
+            <button
+                className={`navbar-menu-item ${active ? "active" : ""}`}
+                onClick={onClick}
+                disabled={disabled}
+                title={title || label}
+            >
+                <span className="navbar-menu-item-icon" style={style}>{icon}</span>
+                <span className="navbar-menu-item-label">{label}</span>
+                {badge != null && <span className="navbar-menu-item-badge">{badge}</span>}
+            </button>
+        );
+    }
+    return (
+        <button
+            className={`tool-btn ${active ? "active" : ""}`}
+            onClick={onClick}
+            disabled={disabled}
+            title={title || label}
+            style={style}
+        >{icon}</button>
+    );
+}
 
 export default function Navbar() {
     const {
@@ -179,6 +222,10 @@ export default function Navbar() {
 
     const saving = savingWorkspace || savingPdf;
 
+    // Overflow ("hamburger") menu — only rendered when the navbar is too narrow to fit
+    // every tool inline. Purely local: nothing outside this component needs to know.
+    const [showToolsMenu, setShowToolsMenu] = React.useState(false);
+
     const onNextMatch = () => setCurrentMatchIndex(prev => (searchMatches.length ? (prev + 1) % searchMatches.length : -1));
     const onPrevMatch = () => setCurrentMatchIndex(prev => (searchMatches.length ? (prev - 1 + searchMatches.length) % searchMatches.length : -1));
 
@@ -188,10 +235,246 @@ export default function Navbar() {
                 setShowPenColors(false);
                 setShowHighlighterColors(false);
             }
+            if (!e.target.closest('.navbar-tools-menu')) {
+                setShowToolsMenu(false);
+            }
         };
         window.addEventListener('pointerdown', handleOutsideClick);
         return () => window.removeEventListener('pointerdown', handleOutsideClick);
     }, [setShowPenColors, setShowHighlighterColors]);
+
+    React.useEffect(() => {
+        if (!showToolsMenu) return;
+        const onKeyDown = (e) => { if (e.key === "Escape") setShowToolsMenu(false); };
+        window.addEventListener('keydown', onKeyDown);
+        return () => window.removeEventListener('keydown', onKeyDown);
+    }, [showToolsMenu]);
+
+    const zoomOut = () => setZoomLevel(prev => Math.max(0.3, parseFloat((prev - 0.15).toFixed(2))));
+    const zoomIn = () => setZoomLevel(prev => Math.min(3, parseFloat((prev + 0.15).toFixed(2))));
+
+    const currentPageNum = () => pdfRef.current?.getCurrentPageNum?.() || 1;
+    const closeMenu = () => setShowToolsMenu(false);
+
+    // Modes/panels that live inside the overflow menu — the menu button flags them so an
+    // active tool is never invisible just because the bar is collapsed.
+    const hiddenToolActive =
+        tool === TOOL_MODES.STICKY_NOTE ||
+        tool === TOOL_MODES.ADD_BOX ||
+        tool === TOOL_MODES.PDF_CONNECT ||
+        showThumbnails || showBookmarks || showHighlightsList;
+
+    // ── Controls that collapse into the overflow menu ──────────────────────────
+    // Each renders as an icon button in the bar, or a labelled row in the menu.
+
+    const renderZoom = (variant) => (
+        variant === "menu" ? (
+            <div className="navbar-menu-item static">
+                <span className="navbar-menu-item-icon">{icons.zoomOut}</span>
+                <span className="navbar-menu-item-label">Zoom</span>
+                <span className="navbar-menu-stepper">
+                    <button onClick={zoomOut} title="Zoom Out PDF (-)">−</button>
+                    <span className="zoom-display">{Math.round((zoomLevel || 1) * 100)}%</span>
+                    <button onClick={zoomIn} title="Zoom In PDF (+)">+</button>
+                </span>
+            </div>
+        ) : (
+            <>
+                <button className="tool-btn" onClick={zoomOut} title="Zoom Out PDF (-)">
+                    <span style={{ fontSize: 16, fontWeight: 700, lineHeight: 1 }}>−</span>
+                </button>
+                <span className="zoom-display">{Math.round((zoomLevel || 1) * 100)}%</span>
+                <button className="tool-btn" onClick={zoomIn} title="Zoom In PDF (+)">
+                    <span style={{ fontSize: 16, fontWeight: 700, lineHeight: 1 }}>+</span>
+                </button>
+            </>
+        )
+    );
+
+    const pageJumpInput = (
+        <div className="page-jump-inline">
+            <input
+                autoFocus
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                defaultValue={currentPageNum()}
+                onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                        const p = parseInt(e.target.value, 10);
+                        const total = pdfRef.current?.pdfDoc?.numPages || 9999;
+                        if (!isNaN(p) && p >= 1 && p <= total) {
+                            pdfRef.current?.scrollToPage(p);
+                        }
+                        setShowPageJump(false);
+                        closeMenu();
+                    }
+                    if (e.key === "Escape") setShowPageJump(false);
+                }}
+                onBlur={() => setShowPageJump(false)}
+                onFocus={(e) => e.target.select()}
+            />
+            <span className="page-jump-total">/ {pdfRef.current?.pdfDoc?.numPages || "?"}</span>
+            <button
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => setShowPageJump(false)}
+            >×</button>
+        </div>
+    );
+
+    const renderPageJump = (variant) => {
+        if (variant === "menu") {
+            return showPageJump ? (
+                <div className="navbar-menu-item static">
+                    <span className="navbar-menu-item-icon">{icons.pageJump}</span>
+                    {pageJumpInput}
+                </div>
+            ) : (
+                <ToolItem
+                    variant="menu"
+                    icon={icons.pageJump}
+                    label="Jump to page"
+                    onClick={() => setShowPageJump(true)}
+                />
+            );
+        }
+        return showPageJump ? pageJumpInput : (
+            <button className="tool-btn" onClick={() => setShowPageJump(true)} title="Jump to Page">
+                {icons.pageJump}
+            </button>
+        );
+    };
+
+    const renderThumbnails = (variant) => (
+        <ToolItem
+            variant={variant}
+            icon={icons.thumbnails}
+            label="Thumbnails"
+            title="PDF Thumbnails"
+            active={showThumbnails}
+            onClick={() => { setShowThumbnails(!showThumbnails); closeMenu(); }}
+        />
+    );
+
+    const renderAddPdfText = (variant) => (
+        <ToolItem
+            variant={variant}
+            icon={icons.textAdd}
+            label="Add text to PDF"
+            title="Add Text to PDF"
+            onClick={() => { pdfRef.current?.addPdfText(); closeMenu(); }}
+        />
+    );
+
+    const renderStickyNote = (variant) => (
+        <ToolItem
+            variant={variant}
+            icon={icons.stickyNote}
+            label="Sticky note"
+            title="Sticky Note — click on PDF to place"
+            active={tool === TOOL_MODES.STICKY_NOTE}
+            onClick={() => {
+                setTool(prev => prev === TOOL_MODES.STICKY_NOTE ? TOOL_MODES.SELECT : TOOL_MODES.STICKY_NOTE);
+                closeMenu();
+            }}
+            style={variant === "bar" && tool === TOOL_MODES.STICKY_NOTE ? { background: '#fff9c4', color: '#f9a825' } : undefined}
+        />
+    );
+
+    const renderPdfConnect = (variant) => (
+        <ToolItem
+            variant={variant}
+            icon={icons.pdfConnect}
+            label="PDF connect line"
+            title="PDF Connect Line (click two points in PDF)"
+            active={tool === TOOL_MODES.PDF_CONNECT}
+            onClick={() => { setTool(TOOL_MODES.PDF_CONNECT); closeMenu(); }}
+        />
+    );
+
+    const renderTextBox = (variant) => (
+        <ToolItem
+            variant={variant}
+            icon={icons.textBox}
+            label="Add text box"
+            title="Add Text Box"
+            active={tool === TOOL_MODES.ADD_BOX}
+            onClick={() => { setTool(TOOL_MODES.ADD_BOX); closeMenu(); }}
+        />
+    );
+
+    const renderAddBookmark = (variant) => (
+        <ToolItem
+            variant={variant}
+            icon={icons.bookmark}
+            label="Bookmark this page"
+            title="Bookmark current page"
+            onClick={() => {
+                const pageNum = currentPageNum();
+                handleAddBookmark(pageNum, `Page ${pageNum}`);
+                setShowBookmarks(true);
+                closeMenu();
+            }}
+            style={bookmarks.some(b => b.page_num === currentPageNum())
+                ? { color: '#f59e0b', ...(variant === "bar" ? { marginRight: 2 } : {}) }
+                : (variant === "bar" ? { marginRight: 2 } : undefined)}
+        />
+    );
+
+    const renderBookmarksList = (variant) => (
+        <ToolItem
+            variant={variant}
+            icon={bookmarks.length > 0
+                ? <span style={{ color: '#f59e0b', fontWeight: 700, fontSize: 11 }}>{bookmarks.length}</span>
+                : icons.bookmarkFilled}
+            label="Bookmarks"
+            title="Show Bookmarks"
+            active={showBookmarks}
+            badge={variant === "menu" && bookmarks.length > 0 ? bookmarks.length : null}
+            onClick={() => { setShowBookmarks(!showBookmarks); closeMenu(); }}
+            style={variant === "bar" ? { marginRight: 4, fontSize: 11, fontWeight: 600, padding: '0 8px', minWidth: 28 } : undefined}
+        />
+    );
+
+    const renderSummary = (variant) => (
+        <ToolItem
+            variant={variant}
+            icon={icons.book}
+            label={summaryLoading ? "Summarizing…" : "Summary"}
+            title="Summarize PDF"
+            active={showSummary}
+            disabled={summaryLoading}
+            onClick={() => { handleSummarizePdf(); closeMenu(); }}
+            style={variant === "bar" ? { marginRight: 4 } : undefined}
+        />
+    );
+
+    const renderAnnotations = (variant) => (
+        <ToolItem
+            variant={variant}
+            icon={icons.highlight}
+            label="All annotations"
+            title="All Annotations"
+            active={showHighlightsList}
+            onClick={() => { setShowHighlightsList(!showHighlightsList); closeMenu(); }}
+            style={variant === "bar" ? { marginRight: 4 } : undefined}
+        />
+    );
+
+    const autosaveSelect = (
+        <select
+            value={autosaveInterval}
+            onChange={(e) => setAutosaveInterval(parseInt(e.target.value))}
+            title="Autosave Interval"
+        >
+            <option value={0}>Off</option>
+            <option value={3000}>3s</option>
+            <option value={30000}>30s</option>
+            <option value={60000}>1m</option>
+            <option value={300000}>5m</option>
+            <option value={600000}>10m</option>
+        </select>
+    );
 
     return (
         <>
@@ -225,87 +508,21 @@ export default function Navbar() {
                 {/* PDF Tools Group */}
                 <div className="tool-group" style={{ gap: 2 }}>
                     {/* Zoom controls */}
-                    <button className="tool-btn" onClick={() => setZoomLevel(prev => Math.max(0.3, parseFloat((prev - 0.15).toFixed(2))))} title="Zoom Out PDF (-)">
-                        <span style={{ fontSize: 16, fontWeight: 700, lineHeight: 1 }}>−</span>
-                    </button>
-                    <span className="zoom-display">{Math.round((zoomLevel || 1) * 100)}%</span>
-                    <button className="tool-btn" onClick={() => setZoomLevel(prev => Math.min(3, parseFloat((prev + 0.15).toFixed(2))))} title="Zoom In PDF (+)">
-                        <span style={{ fontSize: 16, fontWeight: 700, lineHeight: 1 }}>+</span>
-                    </button>
+                    <span className="navbar-collapsible">{renderZoom("bar")}</span>
 
-                    <div className="navbar-section-divider" />
+                    <div className="navbar-section-divider navbar-collapsible" />
 
                     {/* Page Jump — inline input in navbar (no modal, no spinners) */}
-                    {showPageJump ? (
-                        <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "0 4px",
-                            background: "#eff6ff", borderRadius: 8, border: "2px solid #2563eb", height: 30 }}>
-                            <input
-                                autoFocus
-                                type="text"
-                                inputMode="numeric"
-                                pattern="[0-9]*"
-                                defaultValue={pdfRef.current?.getCurrentPageNum?.() || 1}
-                                onKeyDown={(e) => {
-                                    if (e.key === "Enter") {
-                                        const p = parseInt(e.target.value, 10);
-                                        const total = pdfRef.current?.pdfDoc?.numPages || 9999;
-                                        if (!isNaN(p) && p >= 1 && p <= total) {
-                                            pdfRef.current?.scrollToPage(p);
-                                        }
-                                        setShowPageJump(false);
-                                    }
-                                    if (e.key === "Escape") setShowPageJump(false);
-                                }}
-                                onBlur={() => setShowPageJump(false)}
-                                onFocus={(e) => e.target.select()}
-                                style={{
-                                    width: 36, textAlign: "center", fontSize: 13, fontWeight: 700,
-                                    border: "none", outline: "none", background: "transparent",
-                                    color: "#1d4ed8", padding: 0,
-                                }}
-                            />
-                            <span style={{ fontSize: 12, color: "#93c5fd", fontWeight: 500, userSelect: "none" }}>
-                                / {pdfRef.current?.pdfDoc?.numPages || "?"}
-                            </span>
-                            <button
-                                onMouseDown={(e) => e.preventDefault()}
-                                onClick={() => setShowPageJump(false)}
-                                style={{
-                                    background: "none", border: "none", cursor: "pointer",
-                                    color: "#93c5fd", fontSize: 16, lineHeight: 1, padding: "0 2px",
-                                    display: "flex", alignItems: "center",
-                                }}
-                            >×</button>
-                        </div>
-                    ) : (
-                        <button
-                            className="tool-btn"
-                            onClick={() => setShowPageJump(true)}
-                            title="Jump to Page"
-                        >{icons.pageJump}</button>
-                    )}
+                    <span className="navbar-collapsible">{renderPageJump("bar")}</span>
 
                     {/* Thumbnails */}
-                    <button
-                        className={`tool-btn ${showThumbnails ? "active" : ""}`}
-                        onClick={() => setShowThumbnails(!showThumbnails)}
-                        title="PDF Thumbnails"
-                    >{icons.thumbnails}</button>
+                    <span className="navbar-collapsible">{renderThumbnails("bar")}</span>
 
                     {/* Add PDF Text */}
-                    <button
-                        className="tool-btn"
-                        onClick={() => pdfRef.current?.addPdfText()}
-                        title="Add Text to PDF"
-                    >{icons.textAdd}</button>
+                    <span className="navbar-collapsible">{renderAddPdfText("bar")}</span>
 
                     {/* Sticky Note */}
-                    <button
-                        className={`tool-btn ${tool === TOOL_MODES.STICKY_NOTE ? "active" : ""}`}
-                        onClick={() => setTool(prev => prev === TOOL_MODES.STICKY_NOTE ? TOOL_MODES.SELECT : TOOL_MODES.STICKY_NOTE)}
-                        title="Sticky Note — click on PDF to place"
-                        style={tool === TOOL_MODES.STICKY_NOTE ? { background: '#fff9c4', color: '#f9a825' } : {}}
-                    >{icons.stickyNote}</button>
+                    <span className="navbar-collapsible">{renderStickyNote("bar")}</span>
 
                     {/* Highlight Brush + color picker */}
                     <div style={{ position: 'relative' }}>
@@ -358,8 +575,8 @@ export default function Navbar() {
                 <div className="tool-group">
                     <button className={`tool-btn ${tool === TOOL_MODES.SELECT ? "active" : ""}`} onClick={() => setTool(TOOL_MODES.SELECT)} title="Select">{icons.select}</button>
                     {/* <button className={`tool-btn ${tool === TOOL_MODES.DRAW_LINE ? "active" : ""}`} onClick={() => setTool(TOOL_MODES.DRAW_LINE)} title="Connect Notes (workspace)">{icons.connection}</button> */}
-                    <button className={`tool-btn ${tool === TOOL_MODES.PDF_CONNECT ? "active" : ""}`} onClick={() => setTool(TOOL_MODES.PDF_CONNECT)} title="PDF Connect Line (click two points in PDF)">{icons.pdfConnect}</button>
-                    <button className={`tool-btn ${tool === TOOL_MODES.ADD_BOX ? "active" : ""}`} onClick={() => setTool(TOOL_MODES.ADD_BOX)} title="Add Text Box">{icons.textBox}</button>
+                    <span className="navbar-collapsible">{renderPdfConnect("bar")}</span>
+                    <span className="navbar-collapsible">{renderTextBox("bar")}</span>
 
                     {/* Pen tool + floating color picker (same popover pattern as HIGHLIGHT_BRUSH) */}
                     <div style={{ position: 'relative' }}>
@@ -427,59 +644,59 @@ export default function Navbar() {
             {/* ── RIGHT: Annotations + Save ── */}
             <div className="navbar-right">
                 {/* Bookmark current page */}
-                <button
-                    className={`tool-btn ${showBookmarks ? "active" : ""}`}
-                    onClick={() => {
-                        const pageNum = pdfRef.current?.getCurrentPageNum?.() || 1;
-                        handleAddBookmark(pageNum, `Page ${pageNum}`);
-                        setShowBookmarks(true);
-                    }}
-                    title="Bookmark current page"
-                    style={{ marginRight: 2, color: bookmarks.some(b => b.page_num === (pdfRef.current?.getCurrentPageNum?.() || 1)) ? '#f59e0b' : undefined }}
-                >{icons.bookmark}</button>
+                <span className="navbar-collapsible">{renderAddBookmark("bar")}</span>
 
                 {/* Bookmarks list toggle */}
-                <button
-                    className={`tool-btn ${showBookmarks ? "active" : ""}`}
-                    onClick={() => setShowBookmarks(!showBookmarks)}
-                    title="Show Bookmarks"
-                    style={{ marginRight: 4, fontSize: 11, fontWeight: 600, padding: '0 8px', minWidth: 28 }}
-                >
-                    {bookmarks.length > 0 ? <span style={{ color: '#f59e0b', fontWeight: 700 }}>{bookmarks.length}</span> : icons.bookmarkFilled}
-                </button>
+                <span className="navbar-collapsible">{renderBookmarksList("bar")}</span>
 
                 {/* PDF Summary button */}
-                <button
-                    className={`tool-btn ${showSummary ? "active" : ""}`}
-                    onClick={handleSummarizePdf}
-                    title="Summarize PDF"
-                    style={{ marginRight: 4 }}
-                    disabled={summaryLoading}
-                >{icons.book}</button>
+                <span className="navbar-collapsible">{renderSummary("bar")}</span>
 
                 {/* Annotations toggle — opens the right-side sidebar */}
-                <button
-                    className={`tool-btn ${showHighlightsList ? "active" : ""}`}
-                    onClick={() => setShowHighlightsList(!showHighlightsList)}
-                    title="All Annotations"
-                    style={{ marginRight: 4 }}
-                >{icons.highlight}</button>
+                <span className="navbar-collapsible">{renderAnnotations("bar")}</span>
+
+                {/* Overflow menu — CSS reveals this only when the navbar is too narrow */}
+                <div className="navbar-tools-menu">
+                    <button
+                        className={`tool-btn navbar-tools-btn ${showToolsMenu ? "active" : ""} ${hiddenToolActive ? "has-active" : ""}`}
+                        onClick={() => setShowToolsMenu(v => !v)}
+                        title="More tools"
+                        aria-haspopup="true"
+                        aria-expanded={showToolsMenu}
+                    >{icons.menu}</button>
+
+                    {showToolsMenu && (
+                        <div className="navbar-tools-panel">
+                            <div className="navbar-menu-section">View</div>
+                            {renderZoom("menu")}
+                            {renderPageJump("menu")}
+                            {renderThumbnails("menu")}
+
+                            <div className="navbar-menu-section">Insert</div>
+                            {renderAddPdfText("menu")}
+                            {renderStickyNote("menu")}
+                            {renderTextBox("menu")}
+                            {renderPdfConnect("menu")}
+
+                            <div className="navbar-menu-section">Content</div>
+                            {renderAddBookmark("menu")}
+                            {renderBookmarksList("menu")}
+                            {renderSummary("menu")}
+                            {renderAnnotations("menu")}
+
+                            <div className="navbar-menu-section">Settings</div>
+                            <div className="navbar-menu-item static">
+                                <span className="navbar-menu-item-icon">{icons.save}</span>
+                                <span className="navbar-menu-item-label">Autosave</span>
+                                <span className="autosave-select">{autosaveSelect}</span>
+                            </div>
+                        </div>
+                    )}
+                </div>
 
                 {/* Autosave + Save */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 2, background: '#f5f5f5', padding: '2px 3px', borderRadius: 6, border: '1px solid #ddd' }}>
-                    <select
-                        value={autosaveInterval}
-                        onChange={(e) => setAutosaveInterval(parseInt(e.target.value))}
-                        style={{ border: 'none', background: 'transparent', fontSize: 11, color: '#666', padding: '2px 2px 2px 4px', cursor: 'pointer', outline: 'none', fontWeight: 500, maxWidth: 62 }}
-                        title="Autosave Interval"
-                    >
-                        <option value={0}>Off</option>
-                        <option value={3000}>3s</option>
-                        <option value={30000}>30s</option>
-                        <option value={60000}>1m</option>
-                        <option value={300000}>5m</option>
-                        <option value={600000}>10m</option>
-                    </select>
+                <div className="autosave-group">
+                    <span className="autosave-select navbar-collapsible">{autosaveSelect}</span>
                     <button
                         className={`save-btn ${saving ? "saving" : ""}`}
                         onClick={handleGlobalSave}

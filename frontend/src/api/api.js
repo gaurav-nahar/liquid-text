@@ -28,9 +28,12 @@ const getCaseContextFromLocation = () => {
     const diaryYear = (params.get("diary_year") || "").trim();
     const establishment = (params.get("establishment") || "").trim();
     const hasCaseContext = Boolean(diaryNo || diaryYear || establishment);
-    const scopedUserId = hasCaseContext
-        ? `diary_no=${diaryNo}|diary_year=${diaryYear}|establishment=${establishment}`
-        : (params.get("user_id") || params.get("uid") || "user123");
+    const explicitUserId = params.get("user_id") || params.get("uid");
+    const scopedUserId = explicitUserId
+        ? explicitUserId
+        : hasCaseContext
+            ? `diary_no=${diaryNo}|diary_year=${diaryYear}|establishment=${establishment}`
+            : "user123";
 
     return {
         diaryNo,

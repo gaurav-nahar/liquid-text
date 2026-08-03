@@ -331,7 +331,11 @@ export default function App() {
                 <div className="context-bar">
                     <div
                         className="pdf-tabs-container"
-                        style={{ width: panel2PdfUrl ? `${pdfPanelWidth + pdf2PanelWidth}%` : `${pdfPanelWidth}%` }}
+                        style={{
+                            width: panel2PdfUrl ? `${pdfPanelWidth + pdf2PanelWidth}%` : `${pdfPanelWidth}%`,
+                            overflow: 'hidden',
+                            display: pdfPanelWidth === 0 && !panel2PdfUrl ? 'none' : undefined,
+                        }}
                     >
                         <span className="context-label" style={{ paddingLeft: '16px', flexShrink: 0 }}>Files:</span>
                         <div

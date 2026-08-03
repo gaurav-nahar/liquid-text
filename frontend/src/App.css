@@ -7,46 +7,9 @@
   background-color: #FAF9F6;
 }
 
-.main-navbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  height: 56px;
-  background: rgba(255, 255, 255, 0.7);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border-bottom: 1px solid rgba(30, 41, 59, 0.08);
-  padding: 0;
-  /* Align with content boundary */
-  position: sticky;
-  top: 0;
-  z-index: 1000;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.04);
-}
-
-.navbar-left {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: 20px;
-  padding-left: 20px;
-}
-
-.navbar-center {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.navbar-right {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 15px;
-  padding-right: 20px;
-}
+/* .main-navbar and .navbar-left/center/right are defined once, further down this file
+   (search "main-navbar"). An earlier duplicate set of these rules used to live here and
+   was silently overridden — removed so the layout has a single source of truth. */
 
 .nav-info-box {
   display: flex;
@@ -1502,15 +1465,22 @@
   grid-template-columns: auto 1fr auto;
   align-items: center;
   gap: 10px;
+  height: 56px;
   min-height: 48px;
   padding: 6px 12px;
   background: rgba(255, 255, 255, 0.85);
   backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   border-bottom: 1px solid rgba(0, 0, 0, 0.1);
   position: sticky;
   top: 0;
   z-index: 1000;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+  /* Breakpoints below key off THIS element's width, not the viewport — the app is
+     embedded in an iframe/panel in the parent system, so the window size says nothing
+     about how much room the toolbar actually has. */
+  container-type: inline-size;
+  container-name: navbar;
 }
 
 .navbar-left {
@@ -1524,6 +1494,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  /* "safe" keeps the group centred while it fits but stops it bleeding over the
+     search box / Save cluster if it ever outgrows its column. */
+  justify-content: safe center;
   min-width: 0;
   overflow: visible;
 }
@@ -1581,15 +1554,218 @@
   flex-shrink: 0;
 }
 
-@media (max-width: 1280px) {
-  .tool-btn[title="PDF Thumbnails"],
-  .tool-btn[title="Summarize PDF"],
-  .tool-btn[title="All Annotations"] {
-    display: none;
+/* ── Overflow ("hamburger") menu ──────────────────────────────────────────────
+   Secondary tools render twice: inline (.navbar-collapsible) and as rows inside
+   .navbar-tools-panel. Exactly one copy is visible at any width, so nothing has to
+   be measured in JS and nothing moves around under the cursor while resizing. */
+
+.navbar-collapsible {
+  display: inline-flex;
+  align-items: center;
+  gap: inherit;
+}
+
+.navbar-tools-menu {
+  display: none;
+  position: relative;
+}
+
+.navbar-tools-btn.has-active::before {
+  content: "";
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #f59e0b;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9);
+}
+
+.navbar-tools-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 248px;
+  max-height: 70vh;
+  overflow-y: auto;
+  padding: 6px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.14);
+  z-index: 2000;
+}
+
+.navbar-menu-section {
+  padding: 8px 10px 4px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #9ca3af;
+}
+
+.navbar-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  font-size: 13px;
+  color: #1e293b;
+  text-align: left;
+  cursor: pointer;
+}
+
+.navbar-menu-item:hover:not(.static):not(:disabled) {
+  background: #f3f4f6;
+}
+
+.navbar-menu-item:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.navbar-menu-item.active {
+  background: #e8f0fe;
+  color: #1a73e8;
+}
+
+.navbar-menu-item.static {
+  cursor: default;
+}
+
+.navbar-menu-item-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  flex-shrink: 0;
+}
+
+.navbar-menu-item-label {
+  flex: 1;
+  white-space: nowrap;
+}
+
+.navbar-menu-item-badge {
+  font-size: 11px;
+  font-weight: 700;
+  color: #f59e0b;
+}
+
+.navbar-menu-stepper {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.navbar-menu-stepper button {
+  width: 24px;
+  height: 24px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  background: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+  color: #475569;
+  cursor: pointer;
+}
+
+.navbar-menu-stepper button:hover {
+  background: #f3f4f6;
+}
+
+.autosave-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 3px;
+  background: #f5f5f5;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+}
+
+.autosave-select select {
+  max-width: 62px;
+  padding: 2px 2px 2px 4px;
+  border: none;
+  background: transparent;
+  font-size: 11px;
+  font-weight: 500;
+  color: #666;
+  outline: none;
+  cursor: pointer;
+}
+
+.page-jump-inline {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 30px;
+  padding: 0 4px;
+  background: #eff6ff;
+  border: 2px solid #2563eb;
+  border-radius: 8px;
+}
+
+.page-jump-inline input {
+  width: 36px;
+  padding: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+  color: #1d4ed8;
+}
+
+.page-jump-inline .page-jump-total {
+  font-size: 12px;
+  font-weight: 500;
+  color: #93c5fd;
+  user-select: none;
+}
+
+.page-jump-inline button {
+  display: flex;
+  align-items: center;
+  padding: 0 2px;
+  border: none;
+  background: none;
+  font-size: 16px;
+  line-height: 1;
+  color: #93c5fd;
+  cursor: pointer;
+}
+
+/* Collapse point: below this the full toolbar no longer fits, so secondary tools
+   move into the hamburger. Above it the bar is complete and the menu never appears. */
+@container navbar (max-width: 1280px) {
+  .navbar-collapsible {
+    display: none !important;
+  }
+
+  .navbar-tools-menu {
+    display: flex;
   }
 }
 
-@media (max-width: 1180px) {
+@container navbar (max-width: 700px) {
+  .navbar-left {
+    min-width: 0;
+  }
+
+  .search-container {
+    width: clamp(120px, 30cqw, 200px);
+  }
+
   .tool-group {
     gap: 4px;
   }
@@ -1601,6 +1777,32 @@
 
   .navbar-section-divider {
     display: none;
+  }
+}
+
+@container navbar (max-width: 520px) {
+  .search-container {
+    width: clamp(90px, 26cqw, 140px);
+  }
+
+  .tool-btn {
+    width: 28px;
+    height: 28px;
+  }
+}
+
+/* Fallback for engines without container queries: fall back to viewport width, which is
+   correct when the app owns the whole window and no worse than the old behaviour inside
+   a panel. */
+@supports not (container-type: inline-size) {
+  @media (max-width: 1280px) {
+    .navbar-collapsible {
+      display: none !important;
+    }
+
+    .navbar-tools-menu {
+      display: flex;
+    }
   }
 }
 
