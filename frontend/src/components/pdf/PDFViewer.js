@@ -30,6 +30,11 @@ const PDFThumbnailView = React.lazy(() => import("./PDFThumbnailView"));
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker;
 
+// Zoom is a single shared setting (UIContext) persisted per diary case, so the
+// fit-to-width fallback may run at most once per session. Module scope on purpose:
+// it must survive viewer remounts, or every newly opened PDF would reset the zoom.
+let hasAutoFittedThisSession = false;
+
 /**
  * PDFViewer Component
  * Manages PDF rendering, interaction layers, and side-features.
@@ -67,6 +72,7 @@ const PDFViewer = React.memo(
                 TOOL_MODES,
                 pendingCrossLink, startCrossLink,
                 startDragWire,
+                viewSettingsLoaded, viewSettingsRestored,
             } = useUI();
 
             const {
@@ -119,7 +125,7 @@ const PDFViewer = React.memo(
 
             // From pdfShrinkExpand.js
             const {
-                shrinkMapRef, getCurrentPageNum, expandAll, shrinkState, contractBetween, dynamicHeight
+                shrinkMapRef, getCurrentPageNum, expandAll, resetShrink, shrinkState, contractBetween, dynamicHeight
             } = useShrinkExpand(containerRef, zoomContentRef);
 
             // From usePdfRenderer.js
@@ -163,20 +169,37 @@ const PDFViewer = React.memo(
                 };
             }, [searchText, currentMatchIndex, mode, highlightMatchesOnPage, highlights, pdfAnnotations, renderPdfAnnotation]);
 
-            // On first PDF load, fit to panel width (only zooms out if PDF is wider than panel)
-            const hasAutoFit = useRef(false);
+            // Fit-to-width is only a first-run fallback: it runs for a diary that has no
+            // saved layout yet, and the result is then persisted as that case's setting.
+            // Every later PDF — and every later visit — keeps the user's own zoom.
             useEffect(() => {
-                if (pdfDimensions.width <= 0 || hasAutoFit.current) return;
+                // Panels driven by localZoom (PDF 2) own their zoom and must never write
+                // the shared one — doing so used to reset PDF 1 whenever PDF 2 opened.
+                if (localZoom !== null) return;
+                // Wait for the case's saved layout, and stand down once it's restored
+                if (!viewSettingsLoaded || viewSettingsRestored) return;
+                if (pdfDimensions.width <= 0 || hasAutoFittedThisSession) return;
                 const timer = setTimeout(() => {
                     if (!containerRef.current) return;
                     const containerWidth = containerRef.current.clientWidth;
                     if (containerWidth <= 100) return;
                     const fitZoom = Math.min(1.0, (containerWidth - 2) / (pdfDimensions.width + 40));
                     setZoomLevel(Math.max(0.4, fitZoom));
-                    hasAutoFit.current = true;
+                    hasAutoFittedThisSession = true;
                 }, 200);
                 return () => clearTimeout(timer);
-            }, [pdfDimensions.width]); // eslint-disable-line react-hooks/exhaustive-deps
+            }, [pdfDimensions.width, localZoom, viewSettingsLoaded, viewSettingsRestored]); // eslint-disable-line react-hooks/exhaustive-deps
+
+            // A new fileUrl now swaps the document in place instead of remounting the viewer,
+            // so per-document view state has to be cleared by hand.
+            const isFirstDocRef = useRef(true);
+            useEffect(() => {
+                if (isFirstDocRef.current) { isFirstDocRef.current = false; return; }
+                resetShrink();
+                setMultiSelections([]);
+                clearSelectionPopup();
+                if (containerRef.current) containerRef.current.scrollTop = 0;
+            }, [fileUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 
             // --- SECTION 8: PAGE ANCHOR HELPERS (also exposed via imperative handle) ---
             const getAnchorScreenPos = (pageNum, xPct, yPct) => {

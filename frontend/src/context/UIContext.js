@@ -27,11 +27,37 @@ export const UIProvider = ({ children }) => {
     const [userId, setUserId] = useState(null);
     const [autosaveInterval, setAutosaveInterval] = useState(30000); // Default: 30s to protect against iframe reloads
 
-    // Zoom / layout
+    // Zoom / layout — one shared setting for every PDF, persisted per diary case
     const [zoomLevel, setZoomLevel] = useState(1);
     const [pdfRenderScale, setPdfRenderScale] = useState(1.5);
     const [pdfPanelWidth, setPdfPanelWidth] = useState(55);
     const [isResizing, setIsResizing] = useState(false);
+    // Right panel sizing lives here too so the whole layout persists as one unit
+    const [pdf2PanelWidth, setPdf2PanelWidth] = useState(35);
+    const [pdf2Zoom, setPdf2Zoom] = useState(1.0);
+
+    // viewSettingsLoaded — the case workspace has answered (saved layout or not).
+    // viewSettingsRestored — a saved layout was actually applied, so the one-time
+    // fit-to-width pass must not run and overwrite what the user chose last time.
+    const [viewSettingsLoaded, setViewSettingsLoaded] = useState(false);
+    const [viewSettingsRestored, setViewSettingsRestored] = useState(false);
+
+    const applyViewSettings = useCallback((settings) => {
+        const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
+        let restored = false;
+
+        if (settings && typeof settings === 'object') {
+            const { zoomLevel: z, pdfPanelWidth: w, pdf2PanelWidth: w2, pdf2Zoom: z2 } = settings;
+            if (Number.isFinite(z)) { setZoomLevel(clamp(z, 0.3, 3)); restored = true; }
+            if (Number.isFinite(w)) { setPdfPanelWidth(clamp(w, 0, 100)); restored = true; }
+            if (Number.isFinite(w2)) { setPdf2PanelWidth(clamp(w2, 15, 60)); restored = true; }
+            if (Number.isFinite(z2)) { setPdf2Zoom(clamp(z2, 0.3, 3)); restored = true; }
+        }
+
+        setViewSettingsRestored(restored);
+        setViewSettingsLoaded(true);
+        return restored;
+    }, []);
 
     // Drawing colours & size
     const [pdfDrawingColor, setPdfDrawingColor] = useState("black");
@@ -173,7 +199,10 @@ export const UIProvider = ({ children }) => {
         zoomLevel, setZoomLevel,
         pdfRenderScale, setPdfRenderScale,
         pdfPanelWidth, setPdfPanelWidth,
+        pdf2PanelWidth, setPdf2PanelWidth,
+        pdf2Zoom, setPdf2Zoom,
         isResizing, setIsResizing,
+        viewSettingsLoaded, viewSettingsRestored, applyViewSettings,
         pdfDrawingColor, setPdfDrawingColor,
         penSize, setPenSize,
         highlightBrushColor, setHighlightBrushColor,
@@ -201,6 +230,7 @@ export const UIProvider = ({ children }) => {
         openInPanel2, closePanel2,
     }), [
         tool, loading, userId, autosaveInterval, zoomLevel, pdfRenderScale, pdfPanelWidth, isResizing,
+        pdf2PanelWidth, pdf2Zoom, viewSettingsLoaded, viewSettingsRestored, applyViewSettings,
         pdfDrawingColor, penSize, highlightBrushColor, showThumbnails, showPageJump, showHighlightsList,
         hoveredAnnotationId,
         showWorkspaceSidebar, showBookmarks, showPenColors, showHighlighterColors, pdfTabs, activeTabId, casePdfList, secondaryPdfs,

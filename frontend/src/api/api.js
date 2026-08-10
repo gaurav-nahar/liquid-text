@@ -153,6 +153,11 @@ const createWorkspace = (pdfId, name) => api.post(`/workspace/create/${pdfId}?na
 const getCaseWorkspace = () => api.get('/workspace/case');
 api.getCaseWorkspace = getCaseWorkspace;
 
+// 🔍 CASE VIEW SETTINGS — zoom + panel widths, remembered per diary case
+const saveWorkspaceViewSettings = (workspaceId, settings) =>
+    api.put(`/workspace/${workspaceId}/view-settings`, settings);
+api.saveWorkspaceViewSettings = saveWorkspaceViewSettings;
+
 // 📂 WORKSPACE PDFs — persistent list of PDFs associated with a workspace
 const listWorkspacePdfs = (workspaceId) => api.get(`/workspace/${workspaceId}/pdfs`);
 api.listWorkspacePdfs = listWorkspacePdfs;

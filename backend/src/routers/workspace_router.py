@@ -33,6 +33,7 @@ from src.request.snippet_request import SnippetCreate
 from src.request.box_request import BoxCreate, BoxUpdate
 from src.request.line_request import LineCreate, LineUpdate
 from src.request.connection_request import ConnectionCreate, ConnectionUpdate
+from src.request.view_settings_request import ViewSettingsUpdate
 
 router = APIRouter(prefix="/workspace", tags=["workspace"])
 
@@ -528,9 +529,44 @@ def get_or_create_case_workspace(
         "diary_year": ws.diary_year,
         "establishment": ws.establishment,
         "cross_pdf_links_json": ws.cross_pdf_links_json,
+        "view_settings_json": ws.view_settings_json,
         "created_at": ws.created_at,
         "updated_at": ws.updated_at,
     }
+
+
+@router.put("/{workspace_id}/view-settings")
+def save_view_settings(
+    workspace_id: int,
+    payload: ViewSettingsUpdate,
+    db: Session = Depends(get_db),
+    x_user_id: Optional[str] = Header(None),
+):
+    """Persist the case's PDF view layout (zoom + panel widths).
+
+    Stored on the case workspace row, which is already keyed by
+    user_id + diary_no + diary_year + establishment.
+    """
+    ws = db.query(Workspace).filter(Workspace.id == workspace_id).first()
+    if not ws:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    assert_workspace_access(ws, x_user_id)
+
+    # Merge onto whatever is stored so a partial update never drops the other values
+    try:
+        current = json.loads(ws.view_settings_json or "{}")
+        if not isinstance(current, dict):
+            current = {}
+    except Exception:
+        current = {}
+
+    incoming = {k: v for k, v in payload.model_dump().items() if v is not None}
+    current.update(incoming)
+
+    ws.view_settings_json = json.dumps(current)
+    db.commit()
+
+    return {"message": "View settings saved", "view_settings": current}
 
 
 @router.get("/{workspace_id}/pdfs")

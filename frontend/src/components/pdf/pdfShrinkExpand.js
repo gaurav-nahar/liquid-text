@@ -512,6 +512,16 @@ export const useShrinkExpand = (containerRef, contentRef = null) => {
                 containerRef.current._expandAll();
             }
         },
+        // 🧹 resetShrink: forget the accordion state without touching the DOM.
+        // Used when a new document replaces the current one in the same viewer —
+        // the old page elements are already gone, so only the bookkeeping needs clearing.
+        resetShrink: () => {
+            shrinkMapRef.current = {};
+            shrunkBelowRef.current = [];
+            shrunkAboveRef.current = [];
+            setShrinkStatus(null);
+            setDynamicHeight(0);
+        },
         applyAllShrinks: (focusedPage, debug = false) =>
             applyAllShrinks(
                 focusedPage,

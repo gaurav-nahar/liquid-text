@@ -15,6 +15,9 @@ class Workspace(Base):
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
     cross_pdf_links_json = Column(Text, nullable=True, default="[]")
+    # PDF view layout for this case (zoom + panel widths) — shared by every PDF
+    # opened under this diary, restored whenever the case is reopened.
+    view_settings_json = Column(Text, nullable=True)
 
     # Relationships
     pdf = relationship("PDFFile", back_populates="workspaces")

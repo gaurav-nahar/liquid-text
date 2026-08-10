@@ -206,6 +206,8 @@ export default function App() {
         setActiveWorkspace,
         selectedPDF,
         pdfPanelWidth, setPdfPanelWidth,
+        pdf2PanelWidth, setPdf2PanelWidth,
+        pdf2Zoom, setPdf2Zoom,
         isResizing,
         pdfRef, pdf2Ref,
         pdfId,
@@ -259,8 +261,7 @@ export default function App() {
     }, [pdfTabs, activeTabId]);
 
     const [showOpenModal, setShowOpenModal] = useState(false);
-    const [pdf2PanelWidth, setPdf2PanelWidth] = useState(35); // right panel width %
-    const [pdf2Zoom, setPdf2Zoom] = useState(1.0);            // right panel independent zoom
+    // pdf2PanelWidth / pdf2Zoom come from UIContext so they persist with the rest of the layout
     const [isResizing2, setIsResizing2] = useState(false);
     const resizer2Ref = useRef({ startX: 0, startWidth: 35, startZoom: 1.0 });
     const getWorkspaceTabLabel = useCallback((name) => {
@@ -515,8 +516,9 @@ export default function App() {
                                 </div>
 
                                 <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
+                                    {/* No key on purpose: a new PDF swaps the document in place
+                                        rather than tearing down and rebuilding the whole viewer. */}
                                     <PDFViewer
-                                        key={panel2TabId}
                                         ref={pdf2Ref}
                                         fileUrl={panel2PdfUrl}
                                         sourcePdfId={panel2PdfId}

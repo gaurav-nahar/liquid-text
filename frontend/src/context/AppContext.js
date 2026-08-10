@@ -111,6 +111,8 @@ function AppInner({ children }) {
         panel2PdfId,
         closePanel2,
         casePdfList, setCasePdfList,
+        zoomLevel, pdfPanelWidth, pdf2PanelWidth, pdf2Zoom,
+        viewSettingsLoaded, applyViewSettings,
     } = ui;
 
     const caseSessionRef = useRef({ key: null, workspacePdfId: null, workspaceId: null, diaryNo: null, diaryYear: null });
@@ -237,6 +239,20 @@ function AppInner({ children }) {
     // In-flight guard: prevents duplicate workspace creation on rapid double-clicks
     // If two PDF clicks both reach ensureCaseWorkspace simultaneously, only one
     // API call goes to the backend — both await the same promise.
+    // Restore this case's saved PDF layout (zoom + panel widths) off the workspace row.
+    // Called once per case load; marks settings as "loaded" even when the case has none
+    // yet, so the viewer knows it may fall back to fit-to-width.
+    const restoreViewSettingsFrom = useCallback((ws) => {
+        let parsed = null;
+        try {
+            const raw = ws?.view_settings_json;
+            parsed = typeof raw === "string" ? JSON.parse(raw || "null") : (raw || null);
+        } catch (e) {
+            parsed = null;
+        }
+        applyViewSettings(parsed);
+    }, [applyViewSettings]);
+
     const ensureCaseWsPromiseRef = useRef(null);
     const ensureCaseWorkspace = useCallback(async () => {
         if (ensureCaseWsPromiseRef.current) {
@@ -247,13 +263,14 @@ function AppInner({ children }) {
             setWorkspaces([ws]);
             setActiveWorkspace(ws);
             caseSessionRef.current.workspaceId = ws.id;
+            restoreViewSettingsFrom(ws);
             return ws;
         }).finally(() => {
             ensureCaseWsPromiseRef.current = null;
         });
         ensureCaseWsPromiseRef.current = promise;
         return promise;
-    }, [setWorkspaces, setActiveWorkspace]);
+    }, [setWorkspaces, setActiveWorkspace, restoreViewSettingsFrom]);
 
 
     const requestSummaryText = useCallback(async (text) => {
@@ -823,7 +840,11 @@ function AppInner({ children }) {
 
     useEffect(() => {
         const { hasCaseContext, diaryNo, diaryYear, establishment, caseKey } = readCaseContextFromUrl();
-        if (!hasCaseContext) return;
+        if (!hasCaseContext) {
+            // No diary to restore from — release the viewer's fit-to-width fallback
+            applyViewSettings(null);
+            return;
+        }
         caseSessionRef.current = {
             key: caseKey,
             workspacePdfId: null,
@@ -841,6 +862,7 @@ function AppInner({ children }) {
                 setWorkspaces([ws]);
                 setActiveWorkspace(ws);
                 caseSessionRef.current.workspaceId = ws.id;
+                restoreViewSettingsFrom(ws);
 
                 const pdfsRes = await api.listWorkspacePdfs(ws.id);
                 const savedPdfs = pdfsRes.data || [];
@@ -889,6 +911,35 @@ function AppInner({ children }) {
             }
         })();
     }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // ── Persist the case's PDF view layout ────────────────────────────────────
+    // Zoom and panel widths are one shared setting for every PDF of a diary, stored
+    // on the case workspace (already keyed by user + diary_no + diary_year), so the
+    // same diary always reopens the way it was left. Debounced: a drag writes once
+    // when it settles rather than on every intermediate value.
+    const lastSavedViewSettingsRef = useRef(null);
+    useEffect(() => {
+        if (!viewSettingsLoaded) return;
+        const workspaceId = caseSessionRef.current.workspaceId;
+        if (!workspaceId) return;
+
+        const settings = { zoomLevel, pdfPanelWidth, pdf2PanelWidth, pdf2Zoom };
+        const serialized = JSON.stringify(settings);
+
+        // First pass after a restore is the baseline — nothing to write back
+        if (lastSavedViewSettingsRef.current === null) {
+            lastSavedViewSettingsRef.current = serialized;
+            return;
+        }
+        if (serialized === lastSavedViewSettingsRef.current) return;
+
+        const timer = setTimeout(() => {
+            lastSavedViewSettingsRef.current = serialized;
+            api.saveWorkspaceViewSettings(workspaceId, settings)
+                .catch(e => console.error("Saving view settings failed:", e));
+        }, 600);
+        return () => clearTimeout(timer);
+    }, [viewSettingsLoaded, zoomLevel, pdfPanelWidth, pdf2PanelWidth, pdf2Zoom]);
 
     // ── AppActionsContext: stable cross-context callbacks ─────────────────────
     // These are all useCallback with stable deps, so this value rarely changes.
